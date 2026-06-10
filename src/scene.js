@@ -53,20 +53,19 @@ export function createScene() {
   camera.position.set(0, 1.6, 0); // standing eye height in metres
   // Initial pitch (-0.2 tilt) is now set in movement.js so it owns all rotation state.
 
-  // ─── Floor ───────────────────────────────────────────────────────────────
-  // Single draw call. MeshLambertMaterial = no PBR, cheap on mobile GPUs.
+  // ─── Radar floor ─────────────────────────────────────────────────────────
+  // A single canvas texture painted with concentric neon rings, mapped onto
+  // one flat plane. Replaces the old grid+floor (was 2 draw calls, now 1).
+  // MeshBasicMaterial = unlit, so the rings glow at full brightness regardless
+  // of scene lighting — same reasoning as the targets.
   const floorGeo = new THREE.PlaneGeometry(30, 30);
-  const floorMat = new THREE.MeshLambertMaterial({ color: 0x111118 });
+  const floorMat = new THREE.MeshBasicMaterial({
+    map: createRadarTexture(),
+    transparent: true, // let the faded edges blend into the dark environment
+  });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2; // lay flat
   scene.add(floor);
-
-  // ─── Arena boundary grid (visual only) ───────────────────────────────────
-  // A GridHelper gives spatial orientation without extra geometry.
-  // It counts as one draw call.
-  // Slightly visible grid lines — dark blue-purple so the floor reads as a surface.
-  const grid = new THREE.GridHelper(30, 30, 0x223344, 0x1a2233);
-  scene.add(grid);
 
   // ─── Camera laser ray (desktop + mobile only) ────────────────────────────
   // A thin line extending 8m forward from the camera along local -Z.
@@ -99,4 +98,100 @@ export function createScene() {
   });
 
   return { renderer, scene, camera };
+}
+
+// ─── Radar floor texture ─────────────────────────────────────────────────────
+// Paints concentric neon rings onto one canvas, drawn once at startup.
+// Cyan inner rings → magenta/purple mid rings → faint orange accents, all
+// fading toward the edges via a radial alpha mask. Returns a CanvasTexture.
+function createRadarTexture() {
+  const SIZE = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width  = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+  const maxR = SIZE / 2;
+
+  // Dark base — blends into the near-black environment at the edges.
+  ctx.fillStyle = '#050508';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Ring palette, from center outward. Cyan core, magenta mids, orange accents.
+  const RING_COUNT = 8;
+  const colors = [
+    '#00e5ff', // cyan
+    '#00e5ff',
+    '#b14bff', // magenta/purple
+    '#f7931a', // orange accent (ties back to targets)
+    '#b14bff',
+    '#00e5ff',
+    '#b14bff',
+    '#f7931a', // outer orange accent
+  ];
+
+  // Draw each ring twice: a wide blurred glow pass, then a thin bright core.
+  for (let i = 1; i <= RING_COUNT; i++) {
+    const radius = (i / RING_COUNT) * maxR * 0.92; // leave a margin before the edge
+    const color  = colors[i - 1];
+
+    // Glow pass — wide, faint, blurred.
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 10;
+    ctx.globalAlpha = 0.18;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 24;
+    ctx.stroke();
+
+    // Bright core line on top.
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.lineWidth   = 2.5;
+    ctx.globalAlpha = 0.9;
+    ctx.shadowBlur  = 8;
+    ctx.stroke();
+  }
+
+  // Radar sweep lines (N/S/E/W) — faint cyan, reinforces the radar feel.
+  ctx.globalAlpha = 0.12;
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth   = 2;
+  ctx.shadowBlur  = 6;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - maxR * 0.85); ctx.lineTo(cx, cy + maxR * 0.85);
+  ctx.moveTo(cx - maxR * 0.85, cy); ctx.lineTo(cx + maxR * 0.85, cy);
+  ctx.stroke();
+
+  // Center core dot — bright cyan where the player stands.
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = '#00e5ff';
+  ctx.shadowBlur  = 30;
+  ctx.fillStyle   = '#00e5ff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Reset shadow before the fade mask so the mask itself isn't blurred.
+  ctx.shadowBlur  = 0;
+  ctx.globalAlpha = 1;
+
+  // Radial alpha fade — punch a transparent gradient over everything so the
+  // rings glow at center and fade to nothing at the edges.
+  // 'destination-in' keeps existing pixels only where the gradient is opaque.
+  const fade = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+  fade.addColorStop(0.0, 'rgba(0,0,0,1)');   // fully keep center
+  fade.addColorStop(0.65, 'rgba(0,0,0,1)');  // hold most of the radius
+  fade.addColorStop(1.0, 'rgba(0,0,0,0)');   // fade out at the edge
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
 }

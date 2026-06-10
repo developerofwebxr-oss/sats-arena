@@ -7,13 +7,18 @@ import { createHUD } from './hud.js';
 import { setupInput } from './input.js';
 import { setupShooter } from './shoot.js';
 import { setupMovement } from './movement.js';
+import { setupWeapon } from './weapon.js';
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 const { renderer, scene, camera } = createScene();
 
+// The first-person blaster. flashMuzzle fires on every shot (passed to shooter below).
+const { updateWeapon, flashMuzzle } = setupWeapon(camera, renderer);
+
 // setupShooter must come before setupXR because setupXR needs shootFromRay.
-const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene);
+// flashMuzzle is the onFire callback — triggers the muzzle flash on each shot.
+const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, flashMuzzle);
 
 // setupXR now receives:
 //   renderer     — so VRButton and xr.getController() work
@@ -48,6 +53,7 @@ renderer.setAnimationLoop(function animate() {
   updateMovement(delta);  // rotate camera from mouse/keys/gyro/joystick
   updateTargets(elapsed);
   updateBursts(delta);
+  updateWeapon(delta);    // fade the muzzle flash
   updateControllers();    // refresh controller ray lines each frame
 
   renderer.render(scene, camera);

@@ -19,7 +19,9 @@ const BURST_PARTICLE_COUNT = 30;
 const BURST_LIFETIME       = 0.6;  // seconds
 const BURST_SPEED          = 2.5;  // outward metres per second
 
-export function setupShooter(camera, scene) {
+// onFire — optional callback invoked on every shot actually fired (hit or miss),
+// e.g. to trigger the weapon muzzle flash. Not called when out of sats.
+export function setupShooter(camera, scene, onFire) {
   const raycaster = new THREE.Raycaster();
 
   // Active burst objects — each has { points, velocities, age }.
@@ -62,6 +64,9 @@ export function setupShooter(camera, scene) {
     // Spend the sat before anything else — a miss still costs.
     deductSat();
     updateHUD();
+
+    // Announce the shot (muzzle flash etc.) — fires for both hits and misses.
+    if (onFire) onFire();
 
     // Test against all visible target meshes.
     const hits = raycaster.intersectObjects(targetMeshes);

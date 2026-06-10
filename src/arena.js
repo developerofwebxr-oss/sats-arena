@@ -52,7 +52,7 @@ export function buildArena(scene) {
   // A simple ring at the top of the walls gives a "dome" feel without geometry cost.
   const ringGeo = new THREE.RingGeometry(RADIUS - 0.05, RADIUS + 0.05, 32);
   const ringMat = new THREE.MeshBasicMaterial({
-    color: 0xf7931a,
+    color: 0x00e5ff, // cyan — part of the new secondary neon palette
     side: THREE.DoubleSide,
     transparent: true,
     opacity: 0.3,
