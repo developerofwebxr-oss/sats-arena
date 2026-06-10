@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sats Arena</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #000;
+        overflow: hidden;
+        font-family: monospace;
+      }
+
+      /* The Three.js renderer canvas fills the whole window */
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /* The VR button injected by Three.js VRButton helper will appear bottom-center.
+         We restyle it here to match the neon cyberpunk aesthetic. */
+      #VRButton {
+        border: 1px solid #f7931a !important; /* Bitcoin orange */
+        color: #f7931a !important;
+        background: rgba(0, 0, 0, 0.75) !important;
+        font-family: monospace !important;
+        letter-spacing: 0.1em !important;
+      }
+
+      #VRButton:hover {
+        background: rgba(247, 147, 26, 0.15) !important;
+      }
+
+      /* Crosshair — pure CSS, zero Three.js cost.
+         Fixed to screen centre so it's always your aim point. */
+      #crosshair {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 16px;
+        height: 16px;
+        pointer-events: none;
+        user-select: none;
+      }
+      #crosshair::before,
+      #crosshair::after {
+        content: '';
+        position: absolute;
+        background: rgba(247, 147, 26, 0.85);
+      }
+      /* Horizontal bar */
+      #crosshair::before {
+        width: 16px;
+        height: 2px;
+        top: 7px;
+        left: 0;
+      }
+      /* Vertical bar */
+      #crosshair::after {
+        width: 2px;
+        height: 16px;
+        top: 0;
+        left: 7px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="crosshair"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
