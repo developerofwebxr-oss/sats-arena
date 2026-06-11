@@ -80,10 +80,13 @@ export function setupShooter(camera, scene, onFire) {
     // Announce the shot (muzzle flash etc.) — fires for both hits and misses.
     if (onFire) onFire();
 
+    // Three's raycaster doesn't skip invisible objects, so a just-hit coin
+    // (hidden during its respawn delay) could otherwise intercept the ray in
+    // front of a visible one — swallowing the shot. Take the closest VISIBLE hit.
     const hits = raycaster.intersectObjects(targetMeshes);
+    const hit = hits.find((h) => h.object.visible);
 
-    if (hits.length > 0) {
-      const hit = hits[0]; // closest target only
+    if (hit) {
       const hitIndex = targetMeshes.indexOf(hit.object);
 
       spawnBurst(hit.point, scene);   // burst at the hit point

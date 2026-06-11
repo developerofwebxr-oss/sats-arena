@@ -111,19 +111,25 @@ function buildController(index, renderer, scene, shootFromRay) {
   //   tracked-pointer → ray from the controller pose.
   //   screen (phone)  → ray from the XR camera centre, so the phone aims like a
   //                     gun and a centre crosshair is the aim point.
-  group.addEventListener('selectstart', () => {
-    if (!state.connected.value) return;
-
-    const isScreen = state.inputSource && state.inputSource.targetRayMode === 'screen';
+  group.addEventListener('selectstart', (event) => {
+    // Read the input source from the EVENT itself (Three passes it as event.data),
+    // not from the separate 'connected' handler. For handheld AR each tap is a
+    // transient 'screen' source created/destroyed per tap, and 'connected' vs
+    // 'selectstart' can race — depending on state.inputSource/connected.value
+    // there intermittently dropped taps. event.data is always present here.
+    const src = event.data || state.inputSource;
+    const isScreen = src && src.targetRayMode === 'screen';
 
     if (isScreen) {
-      // Handheld: fire straight out of the phone (XR camera forward).
-      // UNTESTED — verify handheld tap aims from screen centre on Android tomorrow.
+      // Handheld: fire straight out of the phone (XR camera forward) = crosshair.
+      // No connected/inputSource gate, so a tap is never swallowed by the race.
       const xrCam = renderer.xr.getCamera();
       _origin.setFromMatrixPosition(xrCam.matrixWorld);
       _direction.set(0, 0, -1).transformDirection(xrCam.matrixWorld).normalize();
     } else {
-      // Tracked controller: fire from the controller pose.
+      // Tracked controller: fire from the controller pose (guard is correct here —
+      // a controller connects once and stays connected).
+      if (!state.connected.value) return;
       _origin.setFromMatrixPosition(group.matrixWorld);
       _direction.set(0, 0, -1).transformDirection(group.matrixWorld).normalize();
     }
