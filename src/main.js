@@ -39,7 +39,7 @@ setupARMode({ renderer, scene, environment, weapon, setSpawnMode });
 
 // Wire mouse click and touch tap → onShoot (flat / non-VR mode).
 // In VR mode, xr.js handles shooting via selectstart on the controllers.
-setupInput(onShoot);
+setupInput(onShoot, renderer);
 
 // setupMovement owns all camera rotation:
 //   desktop  → mouse drag + arrow keys
