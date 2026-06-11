@@ -47,7 +47,7 @@ function injectStyles() {
 
 // ── createHUD ─────────────────────────────────────────────────────────────────
 
-export function createHUD() {
+export function createHUD(onShoot) {
   injectStyles();
 
   // ── Balance display (top-left) ──────────────────────────────────────────────
@@ -122,9 +122,38 @@ export function createHUD() {
     triggerFlash();
     playReloadSound(); // reused as the upgrade-activated chime
     updateHUD();
+    upgradeBtn.blur(); // drop focus so SPACE shoots instead of re-clicking this
   });
 
   document.body.appendChild(upgradeBtn);
+
+  // ── On-screen SHOOT button (bottom-right) ───────────────────────────────────
+  // For mouse-less / touch play. Fires through the centre crosshair — NDC (0,0) —
+  // reusing the same fire path as click/tap/space, so it respects rapid-fire too.
+  const shootBtn = document.createElement('button');
+  shootBtn.id = 'shoot-btn';
+  shootBtn.textContent = '◎ SHOOT';
+  shootBtn.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 16px 26px;
+    background: rgba(0,0,0,0.8);
+    color: #00e5ff;
+    border: 1px solid #00e5ff;
+    font-family: monospace;
+    font-size: 18px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-shadow: 0 0 8px #00e5ff;
+    z-index: 200;
+  `;
+  shootBtn.addEventListener('click', (e) => {
+    e.stopPropagation();   // don't also fire via the window tap handler
+    if (onShoot) onShoot(0, 0);
+    shootBtn.blur();       // drop focus so SPACE doesn't re-click this button
+  });
+  document.body.appendChild(shootBtn);
 
   // ── Flash overlay ──────────────────────────────────────────────────────────
   flashOverlay = document.createElement('div');

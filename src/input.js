@@ -43,4 +43,15 @@ export function setupInput(onShoot, renderer) {
     const ndcY = -(touch.clientY / window.innerHeight) * 2 + 1;
     onShoot(ndcX, ndcY);
   }, { passive: false });
+
+  // ── Spacebar (desktop, no mouse) ──────────────────────────────────────────
+  // Fires straight ahead through the centre crosshair, so the game is playable
+  // with arrow keys to turn + space to shoot. NDC (0,0) = screen centre.
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    e.preventDefault();      // stop the page scrolling / other space defaults
+    if (e.repeat) return;    // one press = one shot/burst (no hold-to-autofire)
+    if (inXR()) return;      // XR uses the controller / handheld tap
+    onShoot(0, 0);
+  });
 }

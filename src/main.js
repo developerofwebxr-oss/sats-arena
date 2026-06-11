@@ -34,7 +34,7 @@ const { updateControllers } = setupXR(renderer, scene, shootFromRay);
 // AR mode can hide the whole fake world at once.
 buildArena(environment);
 spawnTargets(scene);
-createHUD();
+createHUD(onShoot); // onShoot lets the on-screen SHOOT button fire through the crosshair
 
 // AR coordinator — reconfigures the scene on AR session start/end.
 setupARMode({ renderer, scene, environment, weapon, setSpawnMode });

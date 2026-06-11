@@ -156,6 +156,7 @@ export function createDomSwitcher(controller) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation(); // don't let the click reach the canvas shoot handler
       def.action();
+      btn.blur();          // drop focus so SPACE shoots instead of re-triggering this
     });
 
     bar.appendChild(btn);
