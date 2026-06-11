@@ -1,16 +1,20 @@
 import * as THREE from 'three';
 import { targetMeshes, removeTarget } from './targets.js';
-import { deductSat, getBalance } from './sats.js';
-import { updateHUD } from './hud.js';
 import { playHitSound, playMissSound } from './audio.js';
 import { recordHit, recordMiss } from './score.js';
+import { isRapidFire, RAPID_BURST, RAPID_INTERVAL_MS } from './upgrade.js';
 
 /**
- * shoot.js — raycasting, hit detection, sat deduction, and burst particles.
+ * shoot.js — raycasting, hit detection, and burst particles.
+ *
+ * Shooting is FREE and unlimited (free-to-play). Each trigger fires one shot,
+ * unless the rapid-fire upgrade is active — then each trigger fires a quick
+ * burst of RAPID_BURST shots (see upgrade.js).
  *
  * Public API:
- *   setupShooter(camera, scene)  — call once at startup, returns { onShoot, updateBursts }
+ *   setupShooter(camera, scene, onFire) → { onShoot, shootFromRay, updateBursts }
  *   onShoot(ndcX, ndcY)          — call from input.js on every click/tap
+ *   shootFromRay(origin, dir)    — call from xr.js for controller / handheld taps
  *   updateBursts(delta)          — call every frame to animate and expire bursts
  */
 
@@ -19,10 +23,11 @@ const BURST_PARTICLE_COUNT = 30;
 const BURST_LIFETIME       = 0.6;  // seconds
 const BURST_SPEED          = 2.5;  // outward metres per second
 
-// onFire — optional callback invoked on every shot actually fired (hit or miss),
-// e.g. to trigger the weapon muzzle flash. Not called when out of sats.
+// onFire — optional callback invoked on every shot fired (hit or miss),
+// e.g. to trigger the weapon muzzle flash.
 export function setupShooter(camera, scene, onFire) {
   const raycaster = new THREE.Raycaster();
+  const _ndc = new THREE.Vector2(); // reused for camera-space aiming
 
   // Active burst objects — each has { points, velocities, age }.
   // Kept small; bursts expire in ~0.35s so rarely more than 2–3 alive at once.
@@ -40,46 +45,49 @@ export function setupShooter(camera, scene, onFire) {
   // Called by input.js for mouse click and touch tap.
   // ndcX/ndcY are Normalised Device Coordinates [-1, +1].
   function onShoot(ndcX, ndcY) {
-    // Aim the raycaster from the camera through the NDC point.
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-    fireRay();
+    // setupRay aims the raycaster from the camera through the NDC point.
+    // Captured in a closure so rapid-fire bursts re-aim the same way each shot.
+    triggerFire(() => raycaster.setFromCamera(_ndc.set(ndcX, ndcY), camera));
   }
 
   // ── shootFromRay ───────────────────────────────────────────────────────────
-  // Called by xr.js for Quest controller trigger pulls.
-  // origin and direction are world-space THREE.Vector3 read from the controller pose.
-  // Everything after the raycaster setup is shared with onShoot via fireRay().
+  // Called by xr.js for Quest controller triggers and handheld screen taps.
+  // origin/direction are world-space, captured at trigger time.
   function shootFromRay(origin, direction) {
-    // set(origin, direction) bypasses NDC — the ray starts in world space directly.
-    raycaster.set(origin, direction);
-    fireRay();
+    triggerFire(() => raycaster.set(origin, direction));
   }
 
-  // ── fireRay ────────────────────────────────────────────────────────────────
-  // Shared hit-detection logic used by both onShoot and shootFromRay.
-  function fireRay() {
-    // Block shooting when out of sats.
-    if (getBalance() <= 0) return;
+  // ── triggerFire ──────────────────────────────────────────────────────────
+  // One trigger event → one shot, OR a quick burst when rapid-fire is active.
+  // setupRay() configures the raycaster for this trigger's aim; it's reused for
+  // every shot in the burst so they all follow the same line.
+  function triggerFire(setupRay) {
+    doShot(setupRay); // first shot fires immediately
 
-    // Spend the sat before anything else — a miss still costs.
-    deductSat();
-    updateHUD();
+    if (isRapidFire()) {
+      // Schedule the remaining burst shots a few ms apart for a rifle feel.
+      for (let i = 1; i < RAPID_BURST; i++) {
+        setTimeout(() => doShot(setupRay), i * RAPID_INTERVAL_MS);
+      }
+    }
+  }
+
+  // ── doShot ───────────────────────────────────────────────────────────────
+  // Fire a single shot: aim, flash, raycast, resolve hit/miss. Free — no cost.
+  function doShot(setupRay) {
+    setupRay();
 
     // Announce the shot (muzzle flash etc.) — fires for both hits and misses.
     if (onFire) onFire();
 
-    // Test against all visible target meshes.
     const hits = raycaster.intersectObjects(targetMeshes);
 
     if (hits.length > 0) {
       const hit = hits[0]; // closest target only
       const hitIndex = targetMeshes.indexOf(hit.object);
 
-      // Spawn burst at the exact hit point on the sphere's surface.
-      spawnBurst(hit.point, scene);
-
-      // Hide target and schedule respawn.
-      removeTarget(hitIndex, scene);
+      spawnBurst(hit.point, scene);   // burst at the hit point
+      removeTarget(hitIndex, scene);  // hide + schedule respawn
 
       recordHit();
       playHitSound();

@@ -1,10 +1,11 @@
 /**
- * sats.js — the entire sat economy lives here.
+ * sats.js — the upgrade-currency balance.
  *
- * This module is intentionally isolated from all game logic.
- * Phase 3 (shooting) will call deductSat() before firing.
- * A future Lightning integration only needs to implement topUp()
- * — nothing else in the codebase changes.
+ * Free-to-play: shooting no longer costs sats. Sats are now UPGRADE CURRENCY,
+ * spent to buy the rapid-fire upgrade (see upgrade.js / hud.js).
+ *
+ * Isolated from game logic. A future Lightning integration only needs to
+ * implement topUp() — nothing else in the codebase changes.
  */
 
 // Internal balance — not exported directly so nothing can mutate it
@@ -17,13 +18,13 @@ export function getBalance() {
 }
 
 /**
- * Spend 1 sat. Returns true if the shot is allowed, false if broke.
- * The caller decides what to do on false (e.g. block the shot, show UI).
+ * Spend up to `amount` sats. Returns the amount actually deducted (floors at 0
+ * so testing isn't blocked — the upgrade still grants even when broke).
  */
-export function deductSat() {
-  if (balance <= 0) return false;
-  balance -= 1;
-  return true;
+export function deductSats(amount) {
+  const spent = Math.min(amount, balance);
+  balance -= spent;
+  return spent;
 }
 
 /**

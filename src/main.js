@@ -3,7 +3,7 @@ import { createScene } from './scene.js';
 import { setupXR } from './xr.js';
 import { buildArena } from './arena.js';
 import { spawnTargets, updateTargets } from './targets.js';
-import { createHUD } from './hud.js';
+import { createHUD, updateRapidFireHUD } from './hud.js';
 import { setupInput } from './input.js';
 import { setupShooter } from './shoot.js';
 import { setupMovement } from './movement.js';
@@ -11,6 +11,7 @@ import { setupWeapon } from './weapon.js';
 import { setupARMode } from './armode.js';
 import { setSpawnMode } from './targets.js';
 import { setupModeSwitcher } from './modeswitcher.js';
+import { updateUpgrade } from './upgrade.js';
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,8 @@ renderer.setAnimationLoop(function animate() {
   updateBursts(delta);
   weapon.updateWeapon(delta); // fade the muzzle flash
   updateControllers();    // refresh controller ray lines each frame
+  updateUpgrade(delta);   // tick the rapid-fire countdown
+  updateRapidFireHUD();   // refresh countdown + upgrade button state
 
   renderer.render(scene, camera);
 });

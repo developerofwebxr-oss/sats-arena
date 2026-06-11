@@ -1,65 +1,46 @@
-import { getBalance, topUp } from './sats.js';
+import { getBalance, deductSats } from './sats.js';
 import { playReloadSound } from './audio.js';
-import { getRoundStats, resetRound, getBestScore } from './score.js';
+import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
 
 /**
  * hud.js — all DOM overlays.
  *
- * Manages:
- *   - Sat balance display (top-left)
- *   - End-of-round summary overlay (centre-screen, shown when balance = 0)
- *   - Lightning reload button (inside the summary)
- *   - White flash on reload confirm
- *   - Crosshair opacity
+ * Free-to-play HUD:
+ *   - Upgrade-currency balance (top-left)
+ *   - Persistent UPGRADE button (top-right) → buys rapid-fire
+ *   - Rapid-fire countdown (top-left, under the balance) while active
+ *   - White flash on upgrade activation
+ *
+ * No per-shot cost, no round-over, no reload — shooting is free and unlimited.
  */
 
-const RELOAD_AMOUNT = 21; // sats per top-up — matches starting balance
+const UPGRADE_COST = 21; // fake sats per rapid-fire activation
 
 let balanceEl;
-let summaryOverlay;
-let summaryContent;
+let countdownEl;
+let upgradeBtn;
 let flashOverlay;
-let crosshair;
+let lastShownSecond = -1; // so the countdown only re-renders when it changes
 
-// ── Inject CSS animations ──────────────────────────────────────────────────────
+// ── Styles ─────────────────────────────────────────────────────────────────
 function injectStyles() {
   const style = document.createElement('style');
   style.textContent = `
     @keyframes lightning-pulse {
       0%   { box-shadow: 0 0 12px rgba(247,147,26,0.4), 0 0 24px rgba(247,147,26,0.2); }
-      50%  { box-shadow: 0 0 28px rgba(247,147,26,0.9), 0 0 56px rgba(247,147,26,0.5), 0 0 80px rgba(247,147,26,0.2); }
+      50%  { box-shadow: 0 0 28px rgba(247,147,26,0.9), 0 0 56px rgba(247,147,26,0.5); }
       100% { box-shadow: 0 0 12px rgba(247,147,26,0.4), 0 0 24px rgba(247,147,26,0.2); }
     }
-    #reload-btn {
-      animation: lightning-pulse 1.2s ease-in-out infinite;
+    #upgrade-btn { animation: lightning-pulse 1.4s ease-in-out infinite; }
+    #upgrade-btn.active {
+      /* While rapid-fire is running, the button glows magenta to show it's live. */
+      animation: none;
+      border-color: #b14bff;
+      color: #b14bff;
+      text-shadow: 0 0 10px #b14bff;
+      box-shadow: 0 0 24px rgba(177,75,255,0.6);
     }
-    #flash-overlay {
-      transition: opacity 0.15s ease-out;
-    }
-    /* Divider line inside summary */
-    .summary-divider {
-      border: none;
-      border-top: 1px solid rgba(247,147,26,0.3);
-      margin: 14px 0;
-    }
-    /* Stat row: label left, value right */
-    .summary-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 32px;
-      margin: 6px 0;
-      font-size: 16px;
-      letter-spacing: 0.08em;
-    }
-    .summary-row .val {
-      color: #fff;
-    }
-    .summary-best {
-      font-size: 13px;
-      letter-spacing: 0.12em;
-      opacity: 0.6;
-      margin-top: 4px;
-    }
+    #flash-overlay { transition: opacity 0.15s ease-out; }
   `;
   document.head.appendChild(style);
 }
@@ -69,7 +50,7 @@ function injectStyles() {
 export function createHUD() {
   injectStyles();
 
-  // ── Balance display ────────────────────────────────────────────────────────
+  // ── Balance display (top-left) ──────────────────────────────────────────────
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.style.cssText = `
@@ -78,90 +59,72 @@ export function createHUD() {
     left: 16px;
     color: #f7931a;
     font-family: monospace;
-    font-size: 18px;
-    letter-spacing: 0.08em;
     pointer-events: none;
     user-select: none;
     text-shadow: 0 0 8px #f7931a;
   `;
+
   balanceEl = document.createElement('div');
-  hud.appendChild(balanceEl);
+  balanceEl.style.cssText = 'font-size: 18px; letter-spacing: 0.08em;';
+
+  const balanceLabel = document.createElement('div');
+  balanceLabel.textContent = 'UPGRADE CURRENCY';
+  balanceLabel.style.cssText = 'font-size: 10px; letter-spacing: 0.18em; opacity: 0.6; margin-top: 2px;';
+
+  // Rapid-fire countdown — hidden unless active. Magenta to match the upgrade.
+  countdownEl = document.createElement('div');
+  countdownEl.style.cssText = `
+    display: none;
+    margin-top: 10px;
+    font-size: 15px;
+    letter-spacing: 0.12em;
+    color: #b14bff;
+    text-shadow: 0 0 8px #b14bff;
+  `;
+
+  hud.append(balanceEl, balanceLabel, countdownEl);
   document.body.appendChild(hud);
 
-  // ── Round summary + reload button (combined overlay) ──────────────────────
-  // Hidden until balance hits 0. Contains two sections:
-  //   1. Stats summary (hits / misses / accuracy / best)
-  //   2. Lightning reload button
-  summaryOverlay = document.createElement('div');
-  summaryOverlay.id = 'summary-overlay';
-  summaryOverlay.style.cssText = `
-    display: none;
+  // ── Upgrade button (top-right) ──────────────────────────────────────────────
+  // Persistent and always available. Top-right keeps it clear of the balance
+  // (top-left), the mode switcher (bottom-centre) and the crosshair (centre).
+  upgradeBtn = document.createElement('button');
+  upgradeBtn.id = 'upgrade-btn';
+  upgradeBtn.innerHTML = `
+    <div style="font-size:18px; letter-spacing:0.12em;">⚡ RAPID FIRE</div>
+    <div style="font-size:12px; letter-spacing:0.16em; margin-top:5px; opacity:0.8;">${UPGRADE_COST} SATS &nbsp;·&nbsp; 60s</div>
+  `;
+  upgradeBtn.style.cssText = `
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    min-width: 300px;
-    background: rgba(0,0,0,0.92);
-    border: 1px solid rgba(247,147,26,0.5);
-    color: #f7931a;
-    font-family: monospace;
-    text-align: center;
-    padding: 28px 36px 24px;
-    z-index: 100;
-    box-shadow: 0 0 40px rgba(247,147,26,0.15);
-  `;
-
-  // Stats section — content written dynamically in showRoundSummary().
-  summaryContent = document.createElement('div');
-  summaryOverlay.appendChild(summaryContent);
-
-  // Divider between stats and reload button.
-  const divider = document.createElement('hr');
-  divider.className = 'summary-divider';
-  summaryOverlay.appendChild(divider);
-
-  // Reload button — lives inside the summary overlay.
-  const reloadBtn = document.createElement('button');
-  reloadBtn.id = 'reload-btn';
-  reloadBtn.innerHTML = `
-    <div style="font-size:20px; letter-spacing:0.12em;">⚡ LIGHTNING TOP UP</div>
-    <div style="font-size:13px; letter-spacing:0.18em; margin-top:6px; opacity:0.75;">${RELOAD_AMOUNT} SATS &nbsp;·&nbsp; TAP TO CONFIRM</div>
-  `;
-  reloadBtn.style.cssText = `
-    width: 100%;
-    margin-top: 4px;
-    padding: 16px 24px;
-    background: rgba(0,0,0,0.0);
+    top: 16px;
+    right: 16px;
+    padding: 14px 22px;
+    background: rgba(0,0,0,0.8);
     color: #f7931a;
     border: 1px solid #f7931a;
     font-family: monospace;
     text-align: center;
     cursor: pointer;
     text-shadow: 0 0 10px #f7931a;
+    z-index: 200;
   `;
 
-  reloadBtn.addEventListener('mouseenter', () => {
-    reloadBtn.style.background = 'rgba(247,147,26,0.12)';
-  });
-  reloadBtn.addEventListener('mouseleave', () => {
-    reloadBtn.style.background = 'rgba(0,0,0,0.0)';
-  });
+  upgradeBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't let the click reach the canvas shoot handler
 
-  reloadBtn.addEventListener('click', (e) => {
-    e.stopPropagation(); // don't let the click bubble to the canvas shoot handler
+    // Spend the fake currency (floors at 0 — testing is never blocked) and grant.
+    deductSats(UPGRADE_COST);
 
-    summaryOverlay.style.display = 'none';
+    // >>> The single upgrade hook. Real Lightning will call grantRapidFire()
+    //     from its payment-confirmation handler instead of this button. <<<
+    grantRapidFire();
+
     triggerFlash();
-    playReloadSound();
-
-    // Save best score and reset round counters before crediting sats.
-    resetRound();
-    topUp(RELOAD_AMOUNT);
+    playReloadSound(); // reused as the upgrade-activated chime
     updateHUD();
   });
 
-  summaryOverlay.appendChild(reloadBtn);
-  document.body.appendChild(summaryOverlay);
+  document.body.appendChild(upgradeBtn);
 
   // ── Flash overlay ──────────────────────────────────────────────────────────
   flashOverlay = document.createElement('div');
@@ -172,52 +135,14 @@ export function createHUD() {
     background: white;
     opacity: 0;
     pointer-events: none;
-    z-index: 99;
+    z-index: 199;
   `;
   document.body.appendChild(flashOverlay);
-
-  // ── Crosshair reference ───────────────────────────────────────────────────
-  crosshair = document.getElementById('crosshair');
 
   updateHUD();
 }
 
-// ── showRoundSummary ──────────────────────────────────────────────────────────
-
-function showRoundSummary() {
-  const { hits, misses, accuracy } = getRoundStats();
-  const best = getBestScore();
-
-  // Build the stats section HTML.
-  summaryContent.innerHTML = `
-    <div style="font-size:13px; letter-spacing:0.22em; opacity:0.6; margin-bottom:16px;">ROUND OVER</div>
-
-    <div class="summary-row">
-      <span>Hits</span>
-      <span class="val">${hits}</span>
-    </div>
-    <div class="summary-row">
-      <span>Misses</span>
-      <span class="val">${misses}</span>
-    </div>
-    <div class="summary-row">
-      <span>Accuracy</span>
-      <span class="val">${accuracy}%</span>
-    </div>
-
-    <div class="summary-divider" style="margin-top:14px; margin-bottom:10px;"></div>
-
-    <div class="summary-row summary-best">
-      <span>Best&nbsp;score</span>
-      <span class="val">${Math.max(hits, best)} hits ⚡</span>
-    </div>
-  `;
-
-  summaryOverlay.style.display = 'block';
-}
-
 // ── triggerFlash ──────────────────────────────────────────────────────────────
-
 function triggerFlash() {
   flashOverlay.style.transition = 'none';
   flashOverlay.style.opacity    = '0.85';
@@ -228,34 +153,33 @@ function triggerFlash() {
 }
 
 // ── updateHUD ─────────────────────────────────────────────────────────────────
-
+// Refreshes the balance. Call after spending. (Balance no longer changes per
+// shot, so the shoot path doesn't touch the HUD anymore.)
 export function updateHUD() {
   const bal = getBalance();
+  balanceEl.textContent = `⚡ ${bal} sat${bal === 1 ? '' : 's'}`;
+}
 
-  if (bal === 0) {
-    balanceEl.textContent      = '⚡ 0 sats';
-    balanceEl.style.color      = '#ff4444';
-    balanceEl.style.textShadow = '0 0 8px #ff4444';
+// ── updateRapidFireHUD ──────────────────────────────────────────────────────
+// Called every frame from main.js. Shows/hides the countdown and toggles the
+// upgrade button's active glow. Only re-renders text when the second changes.
+export function updateRapidFireHUD() {
+  const active = isRapidFire();
 
-    if (crosshair) crosshair.style.opacity = '0.25';
+  upgradeBtn.classList.toggle('active', active);
 
-    // Show the round summary (which contains the reload button).
-    showRoundSummary();
-
-  } else {
-    balanceEl.textContent = `⚡ ${bal} sat${bal === 1 ? '' : 's'}`;
-
-    summaryOverlay.style.display = 'none';
-
-    if (crosshair) crosshair.style.opacity = '1';
-
-    if (bal <= 5) {
-      // Low warning threshold raised slightly for 21-sat rounds
-      balanceEl.style.color      = '#ffaa00';
-      balanceEl.style.textShadow = '0 0 8px #ffaa00';
-    } else {
-      balanceEl.style.color      = '#f7931a';
-      balanceEl.style.textShadow = '0 0 8px #f7931a';
+  if (active) {
+    const secs = getRemainingSeconds();
+    if (secs !== lastShownSecond) {
+      lastShownSecond = secs;
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
+      countdownEl.textContent = `▶ RAPID FIRE ${m}:${s}`;
     }
+    countdownEl.style.display = 'block';
+  } else if (lastShownSecond !== -1) {
+    // Just expired — hide once.
+    lastShownSecond = -1;
+    countdownEl.style.display = 'none';
   }
 }
