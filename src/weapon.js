@@ -126,5 +126,14 @@ export function setupWeapon(camera, renderer) {
     }
   }
 
-  return { updateWeapon, flashMuzzle };
+  /**
+   * setHidden(bool) — hide/show the whole weapon.
+   * Used to hide the blaster on handheld phone AR, where there's no hand or
+   * controller for it to ride and it would just occlude the small screen.
+   */
+  function setHidden(hidden) {
+    weapon.visible = !hidden;
+  }
+
+  return { updateWeapon, flashMuzzle, setHidden };
 }

@@ -11,11 +11,23 @@ import * as THREE from 'three';
  */
 
 const MAX_TARGETS      = 12;
-const SPAWN_RADIUS_MIN = 3;
-const SPAWN_RADIUS_MAX = 7;
-const SPAWN_HEIGHT_MIN = 1.0;
-const SPAWN_HEIGHT_MAX = 3.0;
 const RESPAWN_DELAY_MS = 800;
+
+// ── Spawn modes ────────────────────────────────────────────────────────────────
+// Coins spawn differently depending on the play mode:
+//   vr          — big arena void, full 360° at arm's reach to far.
+//   quest-ar    — real room passthrough: full 360° but tighter so coins stay in-room.
+//   handheld-ar — phone "magic window": a forward-facing arc (player can't spin
+//                 360° comfortably) at a close radius.
+// angleCenter/angleSpread define the horizontal arc; angle 0 = straight ahead (−Z).
+const SPAWN_MODES = {
+  'vr':          { rMin: 3,   rMax: 7,   hMin: 1.0, hMax: 3.0, angleCenter: 0, angleSpread: Math.PI * 2 },
+  'quest-ar':    { rMin: 1.5, rMax: 4,   hMin: 0.8, hMax: 2.5, angleCenter: 0, angleSpread: Math.PI * 2 },
+  'handheld-ar': { rMin: 1.0, rMax: 3,   hMin: 0.8, hMax: 2.2, angleCenter: 0, angleSpread: (120 * Math.PI) / 180 },
+};
+
+// Active spawn config — defaults to VR. Switched at runtime by setSpawnMode().
+let spawnCfg = SPAWN_MODES['vr'];
 
 // ── Coin geometry ──────────────────────────────────────────────────────────────
 // CylinderGeometry(radiusTop, radiusBottom, height, radialSegments)
@@ -85,12 +97,14 @@ const targetData = [];
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function randomTargetPosition() {
-  const angle  = Math.random() * Math.PI * 2;
-  const radius = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
+  const cfg = spawnCfg;
+  // angle 0 points straight ahead (−Z). Spread is centred on angleCenter.
+  const angle  = cfg.angleCenter + (Math.random() - 0.5) * cfg.angleSpread;
+  const radius = cfg.rMin + Math.random() * (cfg.rMax - cfg.rMin);
   return new THREE.Vector3(
-    Math.cos(angle) * radius,
-    SPAWN_HEIGHT_MIN + Math.random() * (SPAWN_HEIGHT_MAX - SPAWN_HEIGHT_MIN),
-    Math.sin(angle) * radius,
+    Math.sin(angle) * radius,                       // x
+    cfg.hMin + Math.random() * (cfg.hMax - cfg.hMin), // y
+    -Math.cos(angle) * radius,                      // z (negative = in front)
   );
 }
 
@@ -130,6 +144,23 @@ export function spawnTargets(scene) {
 }
 
 /**
+ * setSpawnMode(mode) — switch spawn geometry ('vr' | 'quest-ar' | 'handheld-ar')
+ * and immediately reposition all coins to fit the new mode.
+ * Called by armode.js on AR session start/end.
+ */
+export function setSpawnMode(mode) {
+  spawnCfg = SPAWN_MODES[mode] || SPAWN_MODES['vr'];
+  // Reposition every coin so none are left stranded in the old layout
+  // (e.g. across the room or behind a handheld player).
+  for (let i = 0; i < targetMeshes.length; i++) {
+    const mesh = targetMeshes[i];
+    mesh.position.copy(randomTargetPosition());
+    targetData[i] = makeTargetData(mesh);
+    mesh.visible = true;
+  }
+}
+
+/**
  * removeTarget(index) — hide a hit target and respawn at a new position.
  */
 export function removeTarget(index) {
@@ -161,7 +192,7 @@ export function updateTargets(time) {
     mesh.position.x += data.driftX;
     mesh.position.z += data.driftZ;
     const dist = Math.sqrt(mesh.position.x ** 2 + mesh.position.z ** 2);
-    if (dist > SPAWN_RADIUS_MAX) {
+    if (dist > spawnCfg.rMax) {
       data.driftX *= -1;
       data.driftZ *= -1;
     }

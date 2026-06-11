@@ -65,7 +65,14 @@ export function createScene() {
   });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2; // lay flat
-  scene.add(floor);
+
+  // ─── Environment group ─────────────────────────────────────────────────────
+  // Everything that represents the fake VR world (floor here, walls + ceiling
+  // added later by buildArena) goes in one group so AR mode can hide it all at
+  // once with environment.visible = false, letting passthrough show through.
+  const environment = new THREE.Group();
+  environment.add(floor);
+  scene.add(environment);
 
   // ─── Camera laser ray (desktop + mobile only) ────────────────────────────
   // A thin line extending 8m forward from the camera along local -Z.
@@ -97,7 +104,7 @@ export function createScene() {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { renderer, scene, camera };
+  return { renderer, scene, camera, environment };
 }
 
 // ─── Radar floor texture ─────────────────────────────────────────────────────

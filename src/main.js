@@ -8,17 +8,19 @@ import { setupInput } from './input.js';
 import { setupShooter } from './shoot.js';
 import { setupMovement } from './movement.js';
 import { setupWeapon } from './weapon.js';
+import { setupARMode } from './armode.js';
+import { setSpawnMode } from './targets.js';
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
-const { renderer, scene, camera } = createScene();
+const { renderer, scene, camera, environment } = createScene();
 
-// The first-person blaster. flashMuzzle fires on every shot (passed to shooter below).
-const { updateWeapon, flashMuzzle } = setupWeapon(camera, renderer);
+// The first-person blaster. Captured as an object so armode can hide it on phone AR.
+const weapon = setupWeapon(camera, renderer);
 
 // setupShooter must come before setupXR because setupXR needs shootFromRay.
-// flashMuzzle is the onFire callback — triggers the muzzle flash on each shot.
-const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, flashMuzzle);
+// weapon.flashMuzzle is the onFire callback — triggers the muzzle flash on each shot.
+const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, weapon.flashMuzzle);
 
 // setupXR now receives:
 //   renderer     — so VRButton and xr.getController() work
@@ -26,9 +28,14 @@ const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, flas
 //   shootFromRay — so controller trigger events fire the same hit logic as mouse/touch
 const { updateControllers } = setupXR(renderer, scene, shootFromRay);
 
-buildArena(scene);
+// Walls + ceiling ring go into the environment group (with the radar floor) so
+// AR mode can hide the whole fake world at once.
+buildArena(environment);
 spawnTargets(scene);
 createHUD();
+
+// AR coordinator — reconfigures the scene on AR session start/end.
+setupARMode({ renderer, scene, environment, weapon, setSpawnMode });
 
 // Wire mouse click and touch tap → onShoot (flat / non-VR mode).
 // In VR mode, xr.js handles shooting via selectstart on the controllers.
@@ -53,7 +60,7 @@ renderer.setAnimationLoop(function animate() {
   updateMovement(delta);  // rotate camera from mouse/keys/gyro/joystick
   updateTargets(elapsed);
   updateBursts(delta);
-  updateWeapon(delta);    // fade the muzzle flash
+  weapon.updateWeapon(delta); // fade the muzzle flash
   updateControllers();    // refresh controller ray lines each frame
 
   renderer.render(scene, camera);
