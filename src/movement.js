@@ -290,9 +290,9 @@ function setupGyro() {
   // No-op until the first event arrives (gyroActive flips it on).
   return (_delta) => {
     if (!gyroActive) return;
-    // Both axes inverted so phone motion matches scene motion naturally:
+    // Axes oriented so phone motion matches scene motion naturally:
     // tilt left → scene goes left, tilt up → scene goes up.
     yaw   = gyroYaw;
-    pitch = -gyroPitch * 0.5; // scale pitch down — raw beta range is too sensitive
+    pitch = gyroPitch * 0.5; // scale pitch down — raw beta range is too sensitive
   };
 }
