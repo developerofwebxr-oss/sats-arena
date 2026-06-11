@@ -10,6 +10,7 @@ import { setupMovement } from './movement.js';
 import { setupWeapon } from './weapon.js';
 import { setupARMode } from './armode.js';
 import { setSpawnMode } from './targets.js';
+import { setupModeSwitcher } from './modeswitcher.js';
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ const weapon = setupWeapon(camera, renderer);
 const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, weapon.flashMuzzle);
 
 // setupXR now receives:
-//   renderer     — so VRButton and xr.getController() work
+//   renderer     — so xr.getController() and the XR camera work
 //   scene        — so controller Groups are added to the scene graph
 //   shootFromRay — so controller trigger events fire the same hit logic as mouse/touch
 const { updateControllers } = setupXR(renderer, scene, shootFromRay);
@@ -36,6 +37,11 @@ createHUD();
 
 // AR coordinator — reconfigures the scene on AR session start/end.
 setupARMode({ renderer, scene, environment, weapon, setSpawnMode });
+
+// Unified SCREEN / VR / AR mode switcher (replaces the separate VR/AR buttons).
+// Returns the mode controller; a future in-world 3D switcher can reuse its
+// enterVR / enterAR / exitToScreen methods.
+setupModeSwitcher(renderer);
 
 // Wire mouse click and touch tap → onShoot (flat / non-VR mode).
 // In VR mode, xr.js handles shooting via selectstart on the controllers.

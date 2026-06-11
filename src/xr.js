@@ -1,18 +1,16 @@
 import * as THREE from 'three';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { ARButton } from 'three/addons/webxr/ARButton.js';
 
 /**
- * xr.js — WebXR session button + Quest controller input.
+ * xr.js — Quest controller + handheld-tap input for WebXR sessions.
  *
- * Responsibilities:
- *   1. Inject the "Enter VR" button (VRButton helper).
- *   2. Create controller objects for both hands and add them to the scene.
- *   3. Draw a pointing ray line from each active controller.
- *   4. On trigger pull (selectstart), call shootFromRay() with the
- *      controller's current world-space position and direction.
- *   5. Provide updateControllers() to be called every XR frame
- *      so ray line geometry stays accurate.
+ * Session entry/exit (Enter VR / Enter AR / Exit to SCREEN) lives in
+ * modeswitcher.js. This module only handles input once a session is running:
+ *
+ *   1. Create controller objects for both hands and add them to the scene.
+ *   2. Draw a pointing ray line from each active tracked controller.
+ *   3. On trigger pull (controller) or screen tap (handheld), call shootFromRay()
+ *      with the right world-space origin + direction.
+ *   4. Provide updateControllers() to be called every XR frame.
  *
  * Public API:
  *   setupXR(renderer, scene, shootFromRay) — call once at startup
@@ -23,35 +21,6 @@ import { ARButton } from 'three/addons/webxr/ARButton.js';
 const RAY_LENGTH = 5;
 
 export function setupXR(renderer, scene, shootFromRay) {
-  // ── VR button ─────────────────────────────────────────────────────────────
-  const vrButton = VRButton.createButton(renderer);
-  document.body.appendChild(vrButton);
-
-  // ── AR button ──────────────────────────────────────────────────────────────
-  // Only added if the device actually supports immersive-ar, so it auto-hides
-  // on desktop / iPhone / non-AR devices (rather than showing a disabled label).
-  //
-  // optionalFeatures:
-  //   'dom-overlay'  — lets HTML (crosshair / HUD) render over passthrough on
-  //                    handheld Android AR. Quest ignores what it doesn't use.
-  //   'local-floor'  — floor-relative reference space.
-  // domOverlay.root = document.body so the existing crosshair + HUD show through
-  // on phone AR. UNTESTED — verify dom-overlay crosshair on Android tomorrow.
-  if (navigator.xr && navigator.xr.isSessionSupported) {
-    navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-      if (!supported) return;
-      const arButton = ARButton.createButton(renderer, {
-        optionalFeatures: ['dom-overlay', 'local-floor'],
-        domOverlay: { root: document.body },
-      });
-      document.body.appendChild(arButton);
-
-      // The two buttons both anchor bottom-centre by default and would overlap —
-      // nudge VR left and AR right so they sit side by side.
-      vrButton.style.left = 'calc(50% - 110px)';
-      arButton.style.left = 'calc(50% + 10px)';
-    });
-  }
 
   // ── Build both controllers ─────────────────────────────────────────────────
   // getController(0/1) returns a Group whose world matrix Three.js updates

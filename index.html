@@ -24,19 +24,7 @@
         height: 100vh;
       }
 
-      /* The VR button injected by Three.js VRButton helper will appear bottom-center.
-         We restyle it here to match the neon cyberpunk aesthetic. */
-      #VRButton {
-        border: 1px solid #f7931a !important; /* Bitcoin orange */
-        color: #f7931a !important;
-        background: rgba(0, 0, 0, 0.75) !important;
-        font-family: monospace !important;
-        letter-spacing: 0.1em !important;
-      }
-
-      #VRButton:hover {
-        background: rgba(247, 147, 26, 0.15) !important;
-      }
+      /* Mode switcher (SCREEN / VR / AR) styles live in src/modeswitcher.js. */
 
       /* Crosshair — pure CSS, zero Three.js cost.
          Fixed to screen centre so it's always your aim point. */
