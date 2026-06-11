@@ -1,22 +1,21 @@
-import { getBalance, deductSats } from './sats.js';
 import { playReloadSound } from './audio.js';
 import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
 
 /**
  * hud.js — all DOM overlays.
  *
- * Free-to-play HUD:
- *   - Upgrade-currency balance (top-left)
- *   - Persistent UPGRADE button (top-right) → buys rapid-fire
- *   - Rapid-fire countdown (top-left, under the balance) while active
- *   - White flash on upgrade activation
+ * Free-to-play HUD (no balance / currency):
+ *   - RAPID FIRE purchase button (top-right) → one tap buys 60s of rapid-fire
+ *   - Rapid-fire countdown (top-left) while active
+ *   - White flash on activation
+ *   - On-screen SHOOT button (bottom-right)
  *
- * No per-shot cost, no round-over, no reload — shooting is free and unlimited.
+ * Shooting is free and unlimited. The upgrade purchase IS the upgrade — there's
+ * nothing to deduct from.
  */
 
-const UPGRADE_COST = 21; // fake sats per rapid-fire activation
+const RAPID_FIRE_PRICE = 21; // sats — display + (later) the Lightning invoice amount
 
-let balanceEl;
 let countdownEl;
 let upgradeBtn;
 let flashOverlay;
@@ -59,49 +58,39 @@ function injectStyles() {
 export function createHUD(onShoot) {
   injectStyles();
 
-  // ── Balance display (top-left) ──────────────────────────────────────────────
+  // ── Rapid-fire countdown (top-left) ─────────────────────────────────────────
+  // Hidden unless active. Magenta to match the upgrade.
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.style.cssText = `
     position: fixed;
     top: 16px;
     left: 16px;
-    color: #f7931a;
     font-family: monospace;
     pointer-events: none;
     user-select: none;
-    text-shadow: 0 0 8px #f7931a;
   `;
 
-  balanceEl = document.createElement('div');
-  balanceEl.style.cssText = 'font-size: 18px; letter-spacing: 0.08em;';
-
-  const balanceLabel = document.createElement('div');
-  balanceLabel.textContent = 'UPGRADE CURRENCY';
-  balanceLabel.style.cssText = 'font-size: 10px; letter-spacing: 0.18em; opacity: 0.6; margin-top: 2px;';
-
-  // Rapid-fire countdown — hidden unless active. Magenta to match the upgrade.
   countdownEl = document.createElement('div');
   countdownEl.style.cssText = `
     display: none;
-    margin-top: 10px;
     font-size: 15px;
     letter-spacing: 0.12em;
     color: #b14bff;
     text-shadow: 0 0 8px #b14bff;
   `;
 
-  hud.append(balanceEl, balanceLabel, countdownEl);
+  hud.append(countdownEl);
   document.body.appendChild(hud);
 
-  // ── Upgrade button (top-right) ──────────────────────────────────────────────
-  // Persistent and always available. Top-right keeps it clear of the balance
-  // (top-left), the mode switcher (bottom-centre) and the crosshair (centre).
+  // ── RAPID FIRE purchase button (top-right) ──────────────────────────────────
+  // One tap = buy 60s of rapid-fire. Shows the price. Top-right keeps it clear of
+  // the countdown (top-left), the mode switcher (bottom-centre) and the crosshair.
   upgradeBtn = document.createElement('button');
   upgradeBtn.id = 'upgrade-btn';
   upgradeBtn.innerHTML = `
     <div style="font-size:18px; letter-spacing:0.12em;">⚡ RAPID FIRE</div>
-    <div style="font-size:12px; letter-spacing:0.16em; margin-top:5px; opacity:0.8;">${UPGRADE_COST} SATS &nbsp;·&nbsp; 60s</div>
+    <div style="font-size:12px; letter-spacing:0.16em; margin-top:5px; opacity:0.8;">${RAPID_FIRE_PRICE} sats &nbsp;·&nbsp; 60s</div>
   `;
   upgradeBtn.style.cssText = `
     position: fixed;
@@ -120,18 +109,8 @@ export function createHUD(onShoot) {
 
   upgradeBtn.addEventListener('click', (e) => {
     e.stopPropagation(); // don't let the click reach the canvas shoot handler
-
-    // Spend the fake currency (floors at 0 — testing is never blocked) and grant.
-    deductSats(UPGRADE_COST);
-
-    // >>> The single upgrade hook. Real Lightning will call grantRapidFire()
-    //     from its payment-confirmation handler instead of this button. <<<
-    grantRapidFire();
-
-    triggerFlash();
-    playReloadSound(); // reused as the upgrade-activated chime
-    updateHUD();
-    upgradeBtn.blur(); // drop focus so SPACE shoots instead of re-clicking this
+    purchaseRapidFire();
+    upgradeBtn.blur();   // drop focus so SPACE shoots instead of re-clicking this
   });
 
   document.body.appendChild(upgradeBtn);
@@ -178,8 +157,17 @@ export function createHUD(onShoot) {
     z-index: 199;
   `;
   document.body.appendChild(flashOverlay);
+}
 
-  updateHUD();
+// ── purchaseRapidFire ───────────────────────────────────────────────────────
+// The Lightning seam. Today the tap is free and grants immediately. Later:
+//   request a 21-sat invoice → user pays → on confirmation → grantRapidFire().
+// grantRapidFire() stays the single entry point — only the steps before it change.
+function purchaseRapidFire() {
+  // TODO (Lightning): create invoice for RAPID_FIRE_PRICE, show QR, await payment.
+  grantRapidFire();
+  triggerFlash();
+  playReloadSound(); // ascending chime — the upgrade-activated cue
 }
 
 // ── triggerFlash ──────────────────────────────────────────────────────────────
@@ -190,14 +178,6 @@ function triggerFlash() {
     flashOverlay.style.transition = 'opacity 0.4s ease-out';
     flashOverlay.style.opacity    = '0';
   });
-}
-
-// ── updateHUD ─────────────────────────────────────────────────────────────────
-// Refreshes the balance. Call after spending. (Balance no longer changes per
-// shot, so the shoot path doesn't touch the HUD anymore.)
-export function updateHUD() {
-  const bal = getBalance();
-  balanceEl.textContent = `⚡ ${bal} sat${bal === 1 ? '' : 's'}`;
 }
 
 // ── updateRapidFireHUD ──────────────────────────────────────────────────────
