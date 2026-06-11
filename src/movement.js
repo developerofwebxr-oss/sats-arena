@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 /**
  * movement.js — camera rotation for desktop, mobile, and gyroscope.
  *
@@ -63,7 +65,7 @@ export function setupMovement(camera, renderer) {
     // Touch-drag look is always on (the reliable fallback). Gyro layers on top
     // when available/granted and takes over via the gyroActive flag.
     updaters.push(setupTouchLook(renderer));
-    setupMobileGyro(updaters, renderer);
+    setupMobileGyro(updaters, renderer, camera);
   }
 
   function updateMovement(delta) {
@@ -73,7 +75,11 @@ export function setupMovement(camera, renderer) {
 
     updaters.forEach(fn => fn(delta));
 
-    // Clamp pitch and write final rotation to camera every frame.
+    // When the gyroscope is driving, it sets camera.quaternion directly (absolute
+    // orientation) — don't overwrite it with the yaw/pitch euler below.
+    if (gyroActive) return;
+
+    // Clamp pitch and write final rotation to camera every frame (touch/mouse/keys).
     pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
     camera.rotation.set(pitch, yaw, 0);
   }
@@ -207,22 +213,22 @@ function setupTouchLook(renderer) {
 }
 
 // ── Mobile gyro setup ──────────────────────────────────────────────────────────
-function setupMobileGyro(updaters, renderer) {
+function setupMobileGyro(updaters, renderer, camera) {
   if (typeof DeviceOrientationEvent === 'undefined') return; // touch-drag is the fallback
 
   if (typeof DeviceOrientationEvent.requestPermission === 'function') {
     // iOS 13+ — must request permission from a user gesture (the button).
-    showMotionButton(updaters);
+    showMotionButton(updaters, camera);
   } else {
     // Android and others — no permission needed; start gyro directly.
-    updaters.push(setupGyro());
+    updaters.push(setupGyro(camera));
   }
 }
 
 // ── iOS motion permission prompt ───────────────────────────────────────────────
 // Centred prompt with a high z-index so nothing overlaps/steals the tap. Removed
 // after the choice; if denied or it errors, touch-drag look remains in control.
-function showMotionButton(updaters) {
+function showMotionButton(updaters, camera) {
   const btn = document.createElement('button');
   btn.id = 'motion-btn';
   btn.textContent = '⚡ Enable Motion Controls';
@@ -250,7 +256,7 @@ function showMotionButton(updaters) {
       const response = await DeviceOrientationEvent.requestPermission();
       btn.remove();
       if (response === 'granted') {
-        updaters.push(setupGyro());
+        updaters.push(setupGyro(camera));
       }
       // If denied, do nothing — touch-drag look is already active.
     } catch {
@@ -261,38 +267,78 @@ function showMotionButton(updaters) {
   document.body.appendChild(btn);
 }
 
-// ── Gyroscope ──────────────────────────────────────────────────────────────────
-function setupGyro() {
-  let baseAlpha = null; // calibration baseline — set on first event
-  let baseBeta  = null;
-  let gyroYaw   = 0;
-  let gyroPitch = 0;
+// ── Gyroscope (quaternion-based, robust) ───────────────────────────────────────
+// Converts DeviceOrientationEvent alpha/beta/gamma into the device's RAW world
+// quaternion (standard DeviceOrientationControls math, minus the screen term),
+// anchors it to the hold at enable time, then applies the screen-orientation roll
+// as a POST-rotation each frame:
+//
+//     camera = anchorInverse · deviceRaw_now · q0(screenOrient)
+//
+// Keeping the screen term OUTSIDE the anchor is the key fix: when it was baked
+// into the anchor, rotating to landscape conjugated the result and swapped the
+// pitch/yaw control axes (the landscape inversion). Composing quaternions also
+// avoids gimbal lock, and a frame-rate-independent slerp smooths iOS jitter.
+function setupGyro(camera) {
+  const ZEE = new THREE.Vector3(0, 0, 1);
+  const euler = new THREE.Euler();
+  const q0 = new THREE.Quaternion();
+  // -90° about X: the camera should look out the BACK of the phone, not the top.
+  const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+  const deviceRaw     = new THREE.Quaternion();
+  const anchorInverse = new THREE.Quaternion();
+  const target        = new THREE.Quaternion();
+  let haveAnchor = false;
+
+  // Smoothing: fraction of the remaining gap closed per 60fps-equivalent frame.
+  // High enough that Chrome stays crisp; enough to damp iOS sensor jitter.
+  const SMOOTH = 0.5;
+
+  // Latest reading in radians.
+  let alpha = 0, beta = 0, gamma = 0;
+
+  // Screen rotation (0/90/180/270) in radians — corrects portrait vs landscape.
+  // screen.orientation is undefined on some iOS Safari versions; window.orientation
+  // is the supported fallback there.
+  function screenOrient() {
+    const deg = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
+    return THREE.MathUtils.degToRad(deg);
+  }
+
+  // Build the device's RAW orientation (no screen term) into `out`.
+  function deviceRawQuaternion(out) {
+    euler.set(beta, alpha, -gamma, 'YXZ');
+    out.setFromEuler(euler);
+    out.multiply(q1); // look out the back of the device
+    return out;
+  }
 
   window.addEventListener('deviceorientation', (e) => {
-    if (e.beta === null) return; // sensor not available
+    if (e.alpha === null) return; // no usable sensor data
+    alpha = THREE.MathUtils.degToRad(e.alpha);
+    beta  = THREE.MathUtils.degToRad(e.beta);
+    gamma = THREE.MathUtils.degToRad(e.gamma);
 
-    if (baseBeta === null) {
-      // First event — store the natural resting position as the zero point.
-      baseBeta  = e.beta;
-      baseAlpha = e.alpha;
+    if (!haveAnchor) {
+      // Anchor the RAW hold (no screen term) — this becomes "looking forward".
+      anchorInverse.copy(deviceRawQuaternion(deviceRaw)).invert();
+      haveAnchor = true;
     }
 
-    // beta  = device tilt forward/back (-180 to 180) → camera pitch
-    // alpha = compass heading (0–360) → camera yaw
-    // Deltas from the calibration baseline so any holding angle is neutral.
-    gyroPitch = ((e.beta  - baseBeta)  * Math.PI) / 180;
-    gyroYaw   = ((e.alpha - baseAlpha) * Math.PI) / 180;
-
-    // First real reading — gyro takes over; touch-drag look stands down.
-    gyroActive = true;
+    gyroActive = true; // gyro takes over; touch-drag look stands down
   });
 
-  // No-op until the first event arrives (gyroActive flips it on).
-  return (_delta) => {
-    if (!gyroActive) return;
-    // Axes oriented so phone motion matches scene motion naturally:
-    // tilt left → scene goes left, tilt up → scene goes up.
-    yaw   = gyroYaw;
-    pitch = gyroPitch * 0.5; // scale pitch down — raw beta range is too sensitive
+  return (delta) => {
+    if (!gyroActive || !haveAnchor) return;
+
+    // target = anchorInverse · deviceRaw_now · q0(screenOrient)
+    deviceRawQuaternion(deviceRaw);
+    target.copy(anchorInverse).multiply(deviceRaw)
+          .multiply(q0.setFromAxisAngle(ZEE, -screenOrient()));
+
+    // Frame-rate-independent slerp toward the target (damps iOS jitter).
+    const t = 1 - Math.pow(1 - SMOOTH, delta * 60);
+    camera.quaternion.slerp(target, t);
   };
 }
