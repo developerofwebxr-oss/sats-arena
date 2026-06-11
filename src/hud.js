@@ -41,6 +41,15 @@ function injectStyles() {
       box-shadow: 0 0 24px rgba(177,75,255,0.6);
     }
     #flash-overlay { transition: opacity 0.15s ease-out; }
+
+    /* Narrow phones: shrink the corner buttons so they don't crowd the top row
+       or collide with the bottom controls. */
+    @media (max-width: 480px) {
+      #upgrade-btn { padding: 9px 12px; top: 12px; right: 12px; }
+      #upgrade-btn > div:first-child { font-size: 14px !important; }
+      #upgrade-btn > div:last-child  { font-size: 10px !important; }
+      #shoot-btn { padding: 12px 18px; font-size: 16px; bottom: 92px; right: 14px; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -133,10 +142,12 @@ export function createHUD(onShoot) {
   const shootBtn = document.createElement('button');
   shootBtn.id = 'shoot-btn';
   shootBtn.textContent = '◎ SHOOT';
+  // Raised above the bottom-centre mode switcher so they never overlap, even on
+  // a ~390px portrait phone (switcher sits at bottom ~20–84px; SHOOT floats above).
   shootBtn.style.cssText = `
     position: fixed;
-    bottom: 24px;
-    right: 24px;
+    bottom: 96px;
+    right: 20px;
     padding: 16px 26px;
     background: rgba(0,0,0,0.8);
     color: #00e5ff;

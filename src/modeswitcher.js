@@ -226,6 +226,13 @@ function injectStyles() {
     }
     .mode-btn .mode-main { font-size: 16px; }
     .mode-btn .mode-sub  { font-size: 10px; opacity: 0.7; min-height: 12px; margin-top: 3px; letter-spacing: 0.06em; }
+    /* Narrow phones: tighten so all three fit within ~390px with margins. */
+    @media (max-width: 480px) {
+      #mode-switcher { gap: 6px; width: calc(100vw - 28px); max-width: 360px; }
+      .mode-btn { min-width: 0; flex: 1; padding: 9px 6px; }
+      .mode-btn .mode-main { font-size: 14px; }
+      .mode-btn .mode-sub  { font-size: 9px; }
+    }
     .mode-btn:hover:not(.disabled):not(.checking) {
       background: color-mix(in srgb, var(--accent) 15%, rgba(0,0,0,0.78));
     }

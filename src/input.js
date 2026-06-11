@@ -19,9 +19,15 @@ export function setupInput(onShoot, renderer) {
   // owned by xr.js, so the flat mouse/touch handlers must stand down.
   const inXR = () => renderer.xr.isPresenting;
 
+  // Only taps on the game canvas are shots. Taps on UI controls (buttons, the
+  // mode switcher, the motion prompt) are left alone — critically, this means we
+  // don't preventDefault() on them, so their click events fire normally on iOS.
+  const isCanvasTap = (e) => e.target === renderer.domElement;
+
   // ── Mouse click (desktop) ─────────────────────────────────────────────────
   window.addEventListener('click', (e) => {
     if (inXR()) return;
+    if (!isCanvasTap(e)) return; // ignore clicks on UI buttons
 
     // If the mouse was dragged to rotate the camera, don't shoot.
     // isDragging() is set by movement.js based on the 4px movement threshold.
@@ -33,10 +39,12 @@ export function setupInput(onShoot, renderer) {
   });
 
   // ── Touch tap (mobile) ────────────────────────────────────────────────────
-  // preventDefault stops the browser firing a synthetic 'click' after touchend.
   window.addEventListener('touchend', (e) => {
-    if (inXR()) return; // handheld AR taps are handled by xr.js (screen input)
+    if (inXR()) return;          // handheld AR taps are handled by xr.js (screen input)
+    if (!isCanvasTap(e)) return; // ignore taps on UI buttons (don't suppress their click)
+    if (isDragging()) return;    // a look-drag isn't a shot
 
+    // preventDefault stops the synthetic 'click' that would double-fire onShoot.
     e.preventDefault();
     const touch = e.changedTouches[0];
     const ndcX =  (touch.clientX / window.innerWidth)  * 2 - 1;

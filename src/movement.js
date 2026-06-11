@@ -6,9 +6,11 @@
  *   - Arrow keys → yaw + pitch (held, frame-rate independent)
  *
  * Mobile:
- *   - DeviceOrientation (gyroscope) → yaw + pitch
- *   - iOS requires a permission button on first gesture
- *   - Fallback virtual joystick if gyro unavailable or denied
+ *   - Touch-drag to look — always available, so the phone is playable even
+ *     before / without motion permission.
+ *   - DeviceOrientation (gyroscope) → yaw + pitch, layered on top once granted.
+ *   - iOS requires a permission button on first gesture; if denied or
+ *     unavailable, touch-drag remains the look control.
  *
  * Quest:
  *   - No-op. WebXR head tracking overrides the camera automatically.
@@ -19,13 +21,12 @@
  */
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const DRAG_THRESHOLD  = 4;       // pixels of mouse movement before drag mode engages
-const MOUSE_SPEED     = 0.003;   // radians per pixel
+const DRAG_THRESHOLD  = 4;       // pixels of movement before drag mode engages
+const MOUSE_SPEED     = 0.003;   // radians per pixel (mouse)
+const TOUCH_SPEED     = 0.004;   // radians per pixel (finger drag)
 const KEY_SPEED       = 1.2;     // radians per second for arrow keys
-const JOYSTICK_SPEED  = 1.4;     // radians per second at full joystick deflection
 const PITCH_MIN       = -0.7;    // radians — don't look too far down
 const PITCH_MAX       = 0.7;     // radians — don't look too far up
-const JOYSTICK_RADIUS = 48;      // px — half-width of the joystick base circle
 
 // ── Shared camera state ────────────────────────────────────────────────────────
 // We own yaw and pitch as plain numbers and write them to camera.rotation each frame.
@@ -36,6 +37,10 @@ let pitch = -0.2; // matches the initial tilt that was in scene.js
 // ── Drag flag (read by input.js) ───────────────────────────────────────────────
 let _dragging = false;
 export function isDragging() { return _dragging; }
+
+// True once the gyroscope is actively driving the view. While true, touch-drag
+// look stands down so the two don't fight over yaw/pitch.
+let gyroActive = false;
 
 // ── Main setup ─────────────────────────────────────────────────────────────────
 export function setupMovement(camera, renderer) {
@@ -55,7 +60,10 @@ export function setupMovement(camera, renderer) {
     updaters.push(setupArrowKeys(camera));
   } else {
     // ── Mobile ────────────────────────────────────────────────────────────────
-    setupGyroOrJoystick(camera, updaters, renderer);
+    // Touch-drag look is always on (the reliable fallback). Gyro layers on top
+    // when available/granted and takes over via the gyroActive flag.
+    updaters.push(setupTouchLook(renderer));
+    setupMobileGyro(updaters, renderer);
   }
 
   function updateMovement(delta) {
@@ -146,65 +154,107 @@ function setupArrowKeys() {
   };
 }
 
-// ── Gyroscope or joystick (mobile) ────────────────────────────────────────────
-function setupGyroOrJoystick(camera, updaters, renderer) {
-  // Try gyroscope first. If iOS, we need a permission button.
-  // If not available at all, fall straight through to joystick.
+// ── Touch-drag look (mobile, always available) ────────────────────────────────
+// Drag a finger on the canvas to rotate the view — the reliable fallback that
+// works with or without gyro. Stands down while gyroActive so they don't fight.
+// Listeners are passive (no preventDefault) so they never suppress button taps.
+function setupTouchLook(renderer) {
+  let touchId = null;
+  let startX = 0, startY = 0, lastX = 0, lastY = 0;
 
-  if (typeof DeviceOrientationEvent === 'undefined') {
-    // No gyro API — show joystick immediately.
-    updaters.push(setupJoystick());
-    return;
-  }
+  window.addEventListener('touchstart', (e) => {
+    if (renderer.xr.isPresenting || gyroActive) return;
+    // Only look-drag on the game canvas — taps on UI buttons are left alone.
+    if (e.target !== renderer.domElement) return;
+    const t = e.changedTouches[0];
+    touchId = t.identifier;
+    _dragging = false;
+    startX = lastX = t.clientX;
+    startY = lastY = t.clientY;
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (touchId === null || gyroActive) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touchId) continue;
+
+      // Promote to a drag once past the threshold (so a tap stays a tap = shot).
+      const totalDX = t.clientX - startX;
+      const totalDY = t.clientY - startY;
+      if (!_dragging && Math.hypot(totalDX, totalDY) >= DRAG_THRESHOLD) {
+        _dragging = true;
+      }
+      if (_dragging) {
+        yaw   -= (t.clientX - lastX) * TOUCH_SPEED;
+        pitch -= (t.clientY - lastY) * TOUCH_SPEED;
+      }
+      lastX = t.clientX;
+      lastY = t.clientY;
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touchId) continue;
+      touchId = null;
+      // Leave _dragging set until the next touchstart so input.js's touchend
+      // (which runs in the same gesture) can read it and skip the shot.
+    }
+  });
+
+  // All work happens in the event handlers; no per-frame update needed.
+  return (_delta) => {};
+}
+
+// ── Mobile gyro setup ──────────────────────────────────────────────────────────
+function setupMobileGyro(updaters, renderer) {
+  if (typeof DeviceOrientationEvent === 'undefined') return; // touch-drag is the fallback
 
   if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-    // iOS 13+ — must request permission on a user gesture.
+    // iOS 13+ — must request permission from a user gesture (the button).
     showMotionButton(updaters);
   } else {
-    // Android and others — no permission needed, start gyro directly.
-    const gyroUpdater = setupGyro();
-    if (gyroUpdater) {
-      updaters.push(gyroUpdater);
-    } else {
-      updaters.push(setupJoystick());
-    }
+    // Android and others — no permission needed; start gyro directly.
+    updaters.push(setupGyro());
   }
 }
 
-// ── iOS motion permission button ───────────────────────────────────────────────
+// ── iOS motion permission prompt ───────────────────────────────────────────────
+// Centred prompt with a high z-index so nothing overlaps/steals the tap. Removed
+// after the choice; if denied or it errors, touch-drag look remains in control.
 function showMotionButton(updaters) {
   const btn = document.createElement('button');
+  btn.id = 'motion-btn';
   btn.textContent = '⚡ Enable Motion Controls';
   btn.style.cssText = `
     position: fixed;
-    bottom: 80px;
+    top: 42%;
     left: 50%;
-    transform: translateX(-50%);
-    padding: 12px 24px;
-    background: rgba(0,0,0,0.85);
+    transform: translate(-50%, -50%);
+    padding: 16px 26px;
+    background: rgba(0,0,0,0.9);
     color: #f7931a;
     border: 1px solid #f7931a;
     font-family: monospace;
     font-size: 15px;
     letter-spacing: 0.08em;
     cursor: pointer;
-    z-index: 100;
+    z-index: 300;
     text-shadow: 0 0 8px #f7931a;
+    box-shadow: 0 0 24px rgba(247,147,26,0.3);
   `;
 
-  btn.addEventListener('click', async () => {
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
     try {
       const response = await DeviceOrientationEvent.requestPermission();
       btn.remove();
       if (response === 'granted') {
         updaters.push(setupGyro());
-      } else {
-        // Permission denied — fall back to joystick.
-        updaters.push(setupJoystick());
       }
+      // If denied, do nothing — touch-drag look is already active.
     } catch {
-      btn.remove();
-      updaters.push(setupJoystick());
+      btn.remove(); // touch-drag look remains
     }
   });
 
@@ -217,7 +267,6 @@ function setupGyro() {
   let baseBeta  = null;
   let gyroYaw   = 0;
   let gyroPitch = 0;
-  let gotEvent  = false;
 
   window.addEventListener('deviceorientation', (e) => {
     if (e.beta === null) return; // sensor not available
@@ -230,112 +279,18 @@ function setupGyro() {
 
     // beta  = device tilt forward/back (-180 to 180) → camera pitch
     // alpha = compass heading (0–360) → camera yaw
-    // We use deltas from the calibration baseline so any holding angle is neutral.
+    // Deltas from the calibration baseline so any holding angle is neutral.
     gyroPitch = ((e.beta  - baseBeta)  * Math.PI) / 180;
     gyroYaw   = ((e.alpha - baseAlpha) * Math.PI) / 180;
 
-    gotEvent = true;
+    // First real reading — gyro takes over; touch-drag look stands down.
+    gyroActive = true;
   });
 
-  // Give it 300ms to see if events actually arrive (some devices report the API
-  // but never fire events). If nothing comes, the caller can add joystick instead.
-  // We return the updater immediately; it's a no-op until gotEvent = true.
+  // No-op until the first event arrives (gyroActive flips it on).
   return (_delta) => {
-    if (!gotEvent) return;
-    // Write gyro values into the shared yaw/pitch that updateMovement() applies.
-    yaw   = -gyroYaw;   // negate so turning right increases yaw correctly
+    if (!gyroActive) return;
+    yaw   = -gyroYaw;        // negate so turning right increases yaw correctly
     pitch = gyroPitch * 0.5; // scale down — raw beta range is too sensitive
-  };
-}
-
-// ── Virtual joystick ──────────────────────────────────────────────────────────
-function setupJoystick() {
-  // Base circle (stationary) and knob (moves with thumb).
-  const base = document.createElement('div');
-  base.style.cssText = `
-    position: fixed;
-    bottom: 40px;
-    left: 40px;
-    width: ${JOYSTICK_RADIUS * 2}px;
-    height: ${JOYSTICK_RADIUS * 2}px;
-    border-radius: 50%;
-    background: rgba(247,147,26,0.08);
-    border: 1px solid rgba(247,147,26,0.4);
-    touch-action: none;
-    z-index: 100;
-  `;
-
-  const knob = document.createElement('div');
-  knob.style.cssText = `
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(247,147,26,0.6);
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  `;
-
-  base.appendChild(knob);
-  document.body.appendChild(base);
-
-  // Joystick state — normalised direction [-1, 1] per axis.
-  let joyX = 0;
-  let joyY = 0;
-  let activeTouchId = null; // track which touch finger owns the joystick
-
-  base.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const touch = e.changedTouches[0];
-    activeTouchId = touch.identifier;
-    updateKnob(touch);
-  }, { passive: false });
-
-  window.addEventListener('touchmove', (e) => {
-    if (activeTouchId === null) return;
-    for (const touch of e.changedTouches) {
-      if (touch.identifier !== activeTouchId) continue;
-      e.preventDefault();
-      updateKnob(touch);
-    }
-  }, { passive: false });
-
-  window.addEventListener('touchend', (e) => {
-    for (const touch of e.changedTouches) {
-      if (touch.identifier !== activeTouchId) continue;
-      activeTouchId = null;
-      joyX = joyY = 0;
-      // Return knob to centre.
-      knob.style.transform = 'translate(-50%, -50%)';
-    }
-  });
-
-  function updateKnob(touch) {
-    const rect  = base.getBoundingClientRect();
-    const centreX = rect.left + JOYSTICK_RADIUS;
-    const centreY = rect.top  + JOYSTICK_RADIUS;
-    let dx = touch.clientX - centreX;
-    let dy = touch.clientY - centreY;
-
-    // Clamp to joystick radius.
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > JOYSTICK_RADIUS) {
-      dx *= JOYSTICK_RADIUS / dist;
-      dy *= JOYSTICK_RADIUS / dist;
-    }
-
-    // Normalise to [-1, 1].
-    joyX = dx / JOYSTICK_RADIUS;
-    joyY = dy / JOYSTICK_RADIUS;
-
-    // Move knob visually.
-    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-  }
-
-  return (delta) => {
-    yaw   -= joyX * JOYSTICK_SPEED * delta;
-    pitch += joyY * JOYSTICK_SPEED * delta;
   };
 }
