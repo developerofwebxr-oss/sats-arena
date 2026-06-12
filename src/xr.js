@@ -35,16 +35,29 @@ export function setupXR(renderer, scene, shootFromRay, onControllerSelect) {
   ];
 
   // ── updateControllers ─────────────────────────────────────────────────────
-  // Called every frame from main.js. The ray line lives in controller local
-  // space so it moves automatically, but we still refresh it each frame so
-  // the geometry buffer stays in sync with the GPU.
+  // Called every frame from main.js. Refreshes ray lines and polls the LEFT
+  // controller's face buttons for the EXIT action (face buttons aren't events in
+  // WebXR — they live on inputSource.gamepad.buttons, so we poll with edge detect).
   function updateControllers() {
-    controllers.forEach(({ rayLine, connected }) => {
-      if (!connected.value || !rayLine) return;
-      // The line points from local origin along -Z; no position math needed here
-      // because the Group's world matrix already encodes the controller's pose.
-      // We just ensure needsUpdate is true so Three.js re-uploads the buffer.
-      rayLine.geometry.attributes.position.needsUpdate = true;
+    controllers.forEach((state) => {
+      const { rayLine, connected } = state;
+      if (connected.value && rayLine) {
+        rayLine.geometry.attributes.position.needsUpdate = true;
+      }
+
+      // EXIT immersive session on a deliberate LEFT face-button press (X or Y).
+      // xr-standard mapping on Quest Touch: buttons[4]=X, buttons[5]=Y (left hand).
+      // Edge-detected so holding doesn't repeat; ignores trigger(0)/grip(1).
+      const src = state.inputSource;
+      if (src && src.handedness === 'left' && src.gamepad && src.gamepad.buttons) {
+        const b = src.gamepad.buttons;
+        const pressed = !!((b[4] && b[4].pressed) || (b[5] && b[5].pressed));
+        if (pressed && !state.exitPrev) {
+          const session = renderer.xr.getSession();
+          if (session) session.end();
+        }
+        state.exitPrev = pressed;
+      }
     });
   }
 
@@ -62,7 +75,7 @@ function buildController(index, renderer, scene, shootFromRay, onControllerSelec
 
   // `connected` is a plain object so event callbacks and updateControllers
   // can both read/write it without complex closure wiring.
-  const state = { group, rayLine: null, connected: { value: false }, inputSource: null };
+  const state = { group, rayLine: null, connected: { value: false }, inputSource: null, exitPrev: false };
 
   // ── Ray line ──────────────────────────────────────────────────────────────
   // Two points in controller local space: tip (0,0,0) → forward (0,0,-RAY_LENGTH).
@@ -108,14 +121,6 @@ function buildController(index, renderer, scene, shootFromRay, onControllerSelec
     rayLine.visible = false;
   });
 
-  // ── squeeze (grip) = EXIT the immersive session ─────────────────────────────
-  // A reliable in-app exit: the menu/system button can be unreliable in-browser,
-  // so the grip button ends the VR/AR session → back to the 2D view. Grip is
-  // distinct from the trigger (shoot/activate), so there's no conflict.
-  group.addEventListener('squeezestart', () => {
-    const session = renderer.xr.getSession();
-    if (session) session.end();
-  });
 
   // ── selectstart ───────────────────────────────────────────────────────────
   // Fired on trigger press (Quest controller) OR screen tap (handheld AR).
