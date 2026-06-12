@@ -1,5 +1,7 @@
+import QRCode from 'qrcode';
 import { playReloadSound } from './audio.js';
 import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
+import { isLightningEnabled, getSessionCode, createInvoice } from './lightning.js';
 
 /**
  * hud.js — all DOM overlays.
@@ -19,6 +21,10 @@ const RAPID_FIRE_PRICE = 21; // sats — display + (later) the Lightning invoice
 let countdownEl;
 let upgradeBtn;
 let flashOverlay;
+let payModal;       // payment QR overlay
+let payModalQr;     // <img> for the QR
+let payModalCode;   // session code line
+let payModalStatus; // "waiting…" / error line
 let lastShownSecond = -1; // so the countdown only re-renders when it changes
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -157,17 +163,116 @@ export function createHUD(onShoot) {
     z-index: 199;
   `;
   document.body.appendChild(flashOverlay);
+
+  buildPaymentModal();
+}
+
+// ── Payment modal (QR) ──────────────────────────────────────────────────────
+// Shown when paying with real Lightning: QR + copyable invoice + waiting state.
+function buildPaymentModal() {
+  payModal = document.createElement('div');
+  payModal.id = 'pay-modal';
+  payModal.style.cssText = `
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.88);
+    z-index: 300;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-family: monospace;
+    color: #f7931a;
+    text-align: center;
+    padding: 24px;
+  `;
+
+  const title = document.createElement('div');
+  title.textContent = '⚡ PAY 21 SATS';
+  title.style.cssText = 'font-size: 20px; letter-spacing: 0.12em; text-shadow: 0 0 8px #f7931a;';
+
+  payModalCode = document.createElement('div');
+  payModalCode.style.cssText = 'font-size: 12px; letter-spacing: 0.18em; opacity: 0.7;';
+
+  // White card behind the QR so it scans reliably.
+  const qrCard = document.createElement('div');
+  qrCard.style.cssText = 'background:#fff; padding:12px; border-radius:6px; line-height:0;';
+  payModalQr = document.createElement('img');
+  payModalQr.width = 240;
+  payModalQr.height = 240;
+  payModalQr.alt = 'Lightning invoice QR';
+  qrCard.appendChild(payModalQr);
+
+  payModalStatus = document.createElement('div');
+  payModalStatus.textContent = '⏳ waiting for payment…';
+  payModalStatus.style.cssText = 'font-size: 14px; letter-spacing: 0.08em;';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'CANCEL';
+  cancelBtn.style.cssText = `
+    margin-top: 6px; padding: 10px 20px; background: transparent;
+    color: #888; border: 1px solid #555; font-family: monospace;
+    letter-spacing: 0.1em; cursor: pointer;
+  `;
+  cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closePaymentModal(); cancelBtn.blur(); });
+
+  payModal.append(title, payModalCode, qrCard, payModalStatus, cancelBtn);
+  document.body.appendChild(payModal);
+}
+
+async function showPaymentModal(invoice) {
+  const code = getSessionCode();
+  payModalCode.textContent = code ? `session ${code}` : '';
+  payModalStatus.textContent = '⏳ waiting for payment…';
+  payModalStatus.style.color = '#f7931a';
+  payModal.style.display = 'flex';
+
+  try {
+    // Uppercase the bech32 invoice for QR alphanumeric mode → less dense, easier scan.
+    payModalQr.src = await QRCode.toDataURL(invoice.toUpperCase(), { margin: 1, width: 240 });
+  } catch {
+    payModalStatus.textContent = 'could not render QR — invoice copied below';
+  }
+}
+
+function closePaymentModal() {
+  payModal.style.display = 'none';
 }
 
 // ── purchaseRapidFire ───────────────────────────────────────────────────────
-// The Lightning seam. Today the tap is free and grants immediately. Later:
-//   request a 21-sat invoice → user pays → on confirmation → grantRapidFire().
-// grantRapidFire() stays the single entry point — only the steps before it change.
-function purchaseRapidFire() {
-  // TODO (Lightning): create invoice for RAPID_FIRE_PRICE, show QR, await payment.
+// Flag OFF → instant fake grant (safe fallback / what ships until we flip it on).
+// Flag ON  → real Lightning: create a 21-sat invoice, show the QR, and wait. The
+//   lightning poll detects payment and calls handlePaymentConfirmed() (below).
+async function purchaseRapidFire() {
+  if (!isLightningEnabled()) {
+    grantRapidFire();
+    triggerFlash();
+    playReloadSound();
+    return;
+  }
+
+  try {
+    const { payment_request } = await createInvoice();
+    showPaymentModal(payment_request);
+  } catch (err) {
+    console.warn('purchase failed', err);
+    if (payModalStatus) {
+      payModal.style.display = 'flex';
+      payModalStatus.textContent = 'could not reach payment server — try again';
+      payModalStatus.style.color = '#ff4444';
+    }
+  }
+}
+
+// ── handlePaymentConfirmed ──────────────────────────────────────────────────
+// Wired to lightning.js's onPaid. Same-device flow auto-activates on payment.
+// grantRapidFire() stays the single entry point — real payment now drives it.
+export function handlePaymentConfirmed() {
+  closePaymentModal();
   grantRapidFire();
   triggerFlash();
-  playReloadSound(); // ascending chime — the upgrade-activated cue
+  playReloadSound();
 }
 
 // ── triggerFlash ──────────────────────────────────────────────────────────────
