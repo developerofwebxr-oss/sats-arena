@@ -2,6 +2,7 @@ import QRCode from 'qrcode';
 import { playReloadSound } from './audio.js';
 import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
 import { isLightningEnabled, getSessionCode, createInvoice } from './lightning.js';
+import { getScore } from './score.js';
 
 /**
  * hud.js — all DOM overlays.
@@ -19,6 +20,8 @@ import { isLightningEnabled, getSessionCode, createInvoice } from './lightning.j
 const RAPID_FIRE_PRICE = 21; // sats — display + (later) the Lightning invoice amount
 
 let countdownEl;
+let scoreEl;        // running SCORE (top-centre)
+let lastShownScore = -1;
 let upgradeBtn;
 let flashOverlay;
 let payModal;        // payment QR overlay
@@ -113,6 +116,25 @@ export function createHUD(onShoot) {
 
   hud.append(countdownEl);
   document.body.appendChild(hud);
+
+  // ── SCORE (top-centre) ──────────────────────────────────────────────────────
+  scoreEl = document.createElement('div');
+  scoreEl.id = 'score';
+  scoreEl.style.cssText = `
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: monospace;
+    font-size: 20px;
+    letter-spacing: 0.14em;
+    color: #f7931a;
+    text-shadow: 0 0 10px #f7931a;
+    pointer-events: none;
+    user-select: none;
+  `;
+  scoreEl.textContent = 'SCORE 0';
+  document.body.appendChild(scoreEl);
 
   // ── RAPID FIRE purchase button (top-right) ──────────────────────────────────
   // One tap = buy 60s of rapid-fire. Shows the price. Top-right keeps it clear of
@@ -353,6 +375,13 @@ function triggerFlash() {
 // upgrade button's active glow. Only re-renders text when the second changes.
 export function updateRapidFireHUD() {
   const active = isRapidFire();
+
+  // SCORE — only re-render the text when it actually changes.
+  const score = getScore();
+  if (score !== lastShownScore) {
+    lastShownScore = score;
+    scoreEl.textContent = `SCORE ${score}`;
+  }
 
   upgradeBtn.classList.toggle('active', active);
 

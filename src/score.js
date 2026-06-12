@@ -5,8 +5,9 @@
  * Best score (hits) persisted in localStorage so it survives page refresh.
  *
  * Public API:
- *   recordHit()       — call from shoot.js on a confirmed hit
+ *   recordHit(points) — call from shoot.js on a confirmed hit; adds points
  *   recordMiss()      — call from shoot.js on a confirmed miss
+ *   getScore()        — current running score (points)
  *   getRoundStats()   — returns { hits, misses, accuracy } for the current round
  *   resetRound()      — zeroes counters for a new round (called on reload)
  *   getBestScore()    — returns all-time best hit count from localStorage
@@ -16,9 +17,16 @@ const STORAGE_KEY = 'satsArena_bestScore';
 
 let hits   = 0;
 let misses = 0;
+let score  = 0;
 
-export function recordHit() {
+export function recordHit(points = 0) {
   hits += 1;
+  score += points;
+}
+
+/** Current running score (points). */
+export function getScore() {
+  return score;
 }
 
 export function recordMiss() {
@@ -47,6 +55,7 @@ export function resetRound() {
   }
   hits   = 0;
   misses = 0;
+  score  = 0;
 }
 
 /** Returns the all-time best hit count, or 0 if never set. */

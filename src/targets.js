@@ -1,13 +1,19 @@
 import * as THREE from 'three';
+import { isRapidFire } from './upgrade.js';
 
 /**
- * targets.js — spawns and animates Bitcoin coin targets.
+ * targets.js — spawns and animates Bitcoin coin targets + the rare Satoshi target.
  *
  * Public API:
  *   spawnTargets(scene)          — call once at startup
  *   updateTargets(time)          — call every frame, pass elapsed seconds
- *   removeTarget(index, scene)   — hide a hit target, schedule respawn
- *   targetMeshes                 — array for raycasting in shoot.js
+ *   removeTarget(index)          — hide a hit coin, schedule respawn
+ *   removeSpecial()              — hide a hit Satoshi target, schedule the next
+ *   setSpawnMode(mode)           — switch spawn geometry (vr/quest-ar/handheld-ar)
+ *   targetMeshes                 — array for raycasting in shoot.js (coins + special)
+ *
+ * The Satoshi target (userData.special) ONLY appears during the paid rapid-fire
+ * window, intermittently and one at a time — the reason to pay.
  */
 
 const MAX_TARGETS      = 12;
@@ -88,6 +94,60 @@ const RIM_MAT  = new THREE.MeshBasicMaterial({ color: 0xc4660a }); // darker ora
 const FACE_MAT = new THREE.MeshBasicMaterial({ map: COIN_TEXTURE, side: THREE.FrontSide });
 const COIN_MATS = [RIM_MAT, FACE_MAT, FACE_MAT];
 
+// ── Satoshi (special) texture + materials ──────────────────────────────────────
+// Same canvas-texture technique as the coin, but a gold face, a thick magenta
+// glow ring and a ★ — clearly distinct from the ₿, on-brand with the rapid-fire
+// magenta. Drawn once, shared.
+function createSatoshiTexture() {
+  const SIZE = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  const cx = SIZE / 2, cy = SIZE / 2, r = SIZE / 2;
+
+  // Gold radial face.
+  const grad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
+  grad.addColorStop(0, '#ffe680');
+  grad.addColorStop(1, '#f7b500');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Thick magenta glow ring.
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.84, 0, Math.PI * 2);
+  ctx.strokeStyle = '#b14bff';
+  ctx.lineWidth = 14;
+  ctx.stroke();
+
+  // ★ — white, centred.
+  ctx.fillStyle = 'white';
+  ctx.font = `bold ${Math.floor(SIZE * 0.55)}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('★', cx, cy + SIZE * 0.02);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const SATOSHI_TEXTURE = createSatoshiTexture();
+const SPECIAL_RIM  = new THREE.MeshBasicMaterial({ color: 0xb14bff }); // magenta rim
+const SPECIAL_FACE = new THREE.MeshBasicMaterial({ map: SATOSHI_TEXTURE, side: THREE.FrontSide });
+const SPECIAL_MATS = [SPECIAL_RIM, SPECIAL_FACE, SPECIAL_FACE];
+
+// ── Satoshi target lifecycle state ──────────────────────────────────────────────
+const SPECIAL_LIFETIME = 3.5; // seconds visible before it flees
+const SPECIAL_GAP      = 1.2; // seconds between appearances
+let specialMesh    = null;    // the one special target (also pushed to targetMeshes)
+let specialAnim    = null;    // bob params while visible
+let specialNextAt  = 0;       // earliest time the next one may appear
+let specialUntil   = 0;       // time the current one hides on its own
+let lastTime       = 0;       // latest updateTargets time (used by removeSpecial)
+
 // ── Target array (exported for raycasting in shoot.js) ────────────────────────
 export const targetMeshes = [];
 
@@ -141,6 +201,16 @@ export function spawnTargets(scene) {
     targetMeshes.push(mesh);
     targetData.push(makeTargetData(mesh));
   }
+
+  // The Satoshi target — last entry in targetMeshes (so raycasting includes it),
+  // hidden by default, driven only by updateSpecial(). The normal loops below stay
+  // bounded to MAX_TARGETS, so they never touch it.
+  specialMesh = new THREE.Mesh(COIN_GEO, SPECIAL_MATS);
+  specialMesh.rotation.x = Math.PI / 2;
+  specialMesh.visible = false;
+  specialMesh.userData.special = true;
+  scene.add(specialMesh);
+  targetMeshes.push(specialMesh);
 }
 
 /**
@@ -150,9 +220,9 @@ export function spawnTargets(scene) {
  */
 export function setSpawnMode(mode) {
   spawnCfg = SPAWN_MODES[mode] || SPAWN_MODES['vr'];
-  // Reposition every coin so none are left stranded in the old layout
-  // (e.g. across the room or behind a handheld player).
-  for (let i = 0; i < targetMeshes.length; i++) {
+  // Reposition every COIN (not the special — it's managed separately and stays
+  // hidden outside rapid-fire) so none are stranded in the old layout.
+  for (let i = 0; i < MAX_TARGETS; i++) {
     const mesh = targetMeshes[i];
     mesh.position.copy(randomTargetPosition());
     targetData[i] = makeTargetData(mesh);
@@ -161,7 +231,7 @@ export function setSpawnMode(mode) {
 }
 
 /**
- * removeTarget(index) — hide a hit target and respawn at a new position.
+ * removeTarget(index) — hide a hit coin and respawn at a new position.
  */
 export function removeTarget(index) {
   const mesh = targetMeshes[index];
@@ -175,11 +245,51 @@ export function removeTarget(index) {
 }
 
 /**
- * updateTargets(time) — animate all visible coin targets each frame.
+ * removeSpecial() — hide a hit Satoshi target and schedule the next one (still
+ * gated by rapid-fire in updateSpecial). Called by shoot.js on a special hit.
+ */
+export function removeSpecial() {
+  if (specialMesh) specialMesh.visible = false;
+  specialNextAt = lastTime + SPECIAL_GAP;
+}
+
+// Drive the Satoshi target: only during rapid-fire, intermittently, one at a time.
+function updateSpecial(time) {
+  lastTime = time;
+  if (!specialMesh) return;
+
+  if (!isRapidFire()) {
+    if (specialMesh.visible) specialMesh.visible = false;
+    return;
+  }
+
+  if (specialMesh.visible) {
+    // Animate while up; retire it after its lifetime so it feels fleeting.
+    const a = specialAnim;
+    specialMesh.position.y = a.baseY + Math.sin(time * a.bobSpeed + a.bobOffset) * a.bobAmp;
+    specialMesh.rotation.z += 0.02; // a touch faster than coins, to stand out
+    specialMesh.rotation.y += 0.01;
+    if (time > specialUntil) {
+      specialMesh.visible = false;
+      specialNextAt = time + SPECIAL_GAP;
+    }
+  } else if (time >= specialNextAt) {
+    // Pop it up at a fresh position for a short window.
+    specialMesh.position.copy(randomTargetPosition());
+    specialAnim = makeTargetData(specialMesh);
+    specialMesh.rotation.z = Math.random() * Math.PI * 2;
+    specialMesh.visible = true;
+    specialUntil = time + SPECIAL_LIFETIME;
+  }
+}
+
+/**
+ * updateTargets(time) — animate visible coins (and the Satoshi target) each frame.
  * time = elapsed seconds from the Three.js clock.
  */
 export function updateTargets(time) {
-  for (let i = 0; i < targetMeshes.length; i++) {
+  // Coins only — the special is index MAX_TARGETS, handled by updateSpecial().
+  for (let i = 0; i < MAX_TARGETS; i++) {
     const mesh = targetMeshes[i];
     if (!mesh.visible) continue;
 
@@ -198,9 +308,9 @@ export function updateTargets(time) {
     }
 
     // Each coin has its own spin speeds so they all look distinct.
-    // spinZ = primary face-spin (like a clock hand), always forward, varied pace.
-    // spinY = slight wobble left/right, can go either direction.
     mesh.rotation.z += data.spinZ;
     mesh.rotation.y += data.spinY;
   }
+
+  updateSpecial(time);
 }

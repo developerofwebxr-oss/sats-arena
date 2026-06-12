@@ -202,3 +202,27 @@ export function playReloadSound() {
     );
   });
 }
+
+/**
+ * playSatoshiHitSound() — a bright, rewarding sparkle for hitting a Satoshi target.
+ *
+ * A fast ascending four-note arpeggio (higher and snappier than the reload chime)
+ * with an octave-up shimmer, so a big hit feels like a jackpot.
+ */
+export function playSatoshiHitSound() {
+  const c   = getCtx();
+  const now = c.currentTime;
+
+  const notes = [
+    { freq: 660,  startOffset: 0.0,  duration: 0.14 },
+    { freq: 880,  startOffset: 0.05, duration: 0.14 },
+    { freq: 1320, startOffset: 0.1,  duration: 0.16 },
+    { freq: 1760, startOffset: 0.15, duration: 0.28 }, // bright landing note
+  ];
+
+  notes.forEach(({ freq, startOffset, duration }) => {
+    const t = now + startOffset;
+    playTone(c, freq, 'triangle', 0.26, 0.005, duration, t);   // clean bell
+    playTone(c, freq * 2, 'sine', 0.10, 0.005, duration * 0.7, t); // shimmer
+  });
+}

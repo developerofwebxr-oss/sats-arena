@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { targetMeshes, removeTarget } from './targets.js';
-import { playHitSound, playMissSound } from './audio.js';
+import { targetMeshes, removeTarget, removeSpecial } from './targets.js';
+import { playHitSound, playMissSound, playSatoshiHitSound } from './audio.js';
 import { recordHit, recordMiss } from './score.js';
 import { isRapidFire, RAPID_BURST, RAPID_INTERVAL_MS } from './upgrade.js';
 
@@ -23,6 +23,14 @@ const BURST_PARTICLE_COUNT = 30;
 const BURST_LIFETIME       = 0.6;  // seconds
 const BURST_SPEED          = 2.5;  // outward metres per second
 
+// Satoshi (special) hits get a bigger, faster burst for extra juice.
+const SATOSHI_BURST_COUNT  = 60;
+const SATOSHI_BURST_SPEED  = 3.5;
+
+// Points awarded per hit.
+const NORMAL_POINTS  = 1;
+const SATOSHI_POINTS = 50;
+
 // onFire — optional callback invoked on every shot fired (hit or miss),
 // e.g. to trigger the weapon muzzle flash.
 export function setupShooter(camera, scene, onFire) {
@@ -39,6 +47,13 @@ export function setupShooter(camera, scene, onFire) {
     color: 0xf7931a,
     size: 0.12,
     sizeAttenuation: true, // particles shrink with distance (perspective)
+  });
+
+  // Distinct burst material for Satoshi hits — bigger gold particles.
+  const satoshiBurstMat = new THREE.PointsMaterial({
+    color: 0xffd700,
+    size: 0.2,
+    sizeAttenuation: true,
   });
 
   // ── onShoot ────────────────────────────────────────────────────────────────
@@ -87,13 +102,20 @@ export function setupShooter(camera, scene, onFire) {
     const hit = hits.find((h) => h.object.visible);
 
     if (hit) {
-      const hitIndex = targetMeshes.indexOf(hit.object);
-
-      spawnBurst(hit.point, scene);   // burst at the hit point
-      removeTarget(hitIndex, scene);  // hide + schedule respawn
-
-      recordHit();
-      playHitSound();
+      if (hit.object.userData.special) {
+        // Satoshi target — big points, big gold burst, distinct sound.
+        spawnBurst(hit.point, SATOSHI_BURST_COUNT, SATOSHI_BURST_SPEED, satoshiBurstMat);
+        removeSpecial();
+        recordHit(SATOSHI_POINTS);
+        playSatoshiHitSound();
+      } else {
+        // Normal coin.
+        const hitIndex = targetMeshes.indexOf(hit.object);
+        spawnBurst(hit.point, BURST_PARTICLE_COUNT, BURST_SPEED, burstMat);
+        removeTarget(hitIndex);
+        recordHit(NORMAL_POINTS);
+        playHitSound();
+      }
     } else {
       recordMiss();
       playMissSound();
@@ -101,13 +123,12 @@ export function setupShooter(camera, scene, onFire) {
   }
 
   // ── spawnBurst ─────────────────────────────────────────────────────────────
-  function spawnBurst(origin, scene) {
-    // Build a BufferGeometry with BURST_PARTICLE_COUNT points all starting
-    // at the hit position. Each frame we move them outward along their velocity.
-    const positions   = new Float32Array(BURST_PARTICLE_COUNT * 3);
-    const velocities  = []; // plain JS array of THREE.Vector3
+  // count/speed/material let normal and Satoshi hits use different juice.
+  function spawnBurst(origin, count, speed, material) {
+    const positions  = new Float32Array(count * 3);
+    const velocities = []; // plain JS array of THREE.Vector3
 
-    for (let i = 0; i < BURST_PARTICLE_COUNT; i++) {
+    for (let i = 0; i < count; i++) {
       // All particles start at the origin.
       positions[i * 3]     = origin.x;
       positions[i * 3 + 1] = origin.y;
@@ -118,17 +139,17 @@ export function setupShooter(camera, scene, onFire) {
         Math.random() - 0.5,
         Math.random() - 0.5,
         Math.random() - 0.5,
-      ).normalize().multiplyScalar(BURST_SPEED);
+      ).normalize().multiplyScalar(speed);
       velocities.push(dir);
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-    const points = new THREE.Points(geo, burstMat);
+    const points = new THREE.Points(geo, material);
     scene.add(points);
 
-    bursts.push({ points, velocities, age: 0 });
+    bursts.push({ points, velocities, age: 0, count });
   }
 
   // ── updateBursts ──────────────────────────────────────────────────────────
@@ -148,7 +169,7 @@ export function setupShooter(camera, scene, onFire) {
 
       // Move each particle outward along its velocity.
       const posAttr = burst.points.geometry.attributes.position;
-      for (let p = 0; p < BURST_PARTICLE_COUNT; p++) {
+      for (let p = 0; p < burst.count; p++) {
         posAttr.setXYZ(
           p,
           posAttr.getX(p) + burst.velocities[p].x * delta,
