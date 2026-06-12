@@ -28,6 +28,20 @@ let payModalStatus;  // "waiting…" / error line
 let payModalOpenLink; // <a href="lightning:..."> open-in-wallet button
 let payModalCopyBtn;  // copy-invoice button
 let currentInvoice = ''; // the active BOLT11 string
+let upgradeDefaultHTML = ''; // RAPID FIRE button's normal markup (restored after loading)
+let purchasing = false;      // guards against double-taps while creating an invoice
+
+// Toggle the RAPID FIRE button between its normal label and a "creating…" spinner.
+function setUpgradeLoading(loading) {
+  purchasing = loading;
+  if (loading) {
+    upgradeBtn.innerHTML = `<div style="font-size:14px; letter-spacing:0.1em;"><span class="mini-spinner"></span>&nbsp; CREATING INVOICE…</div>`;
+    upgradeBtn.style.cursor = 'default';
+  } else {
+    upgradeBtn.innerHTML = upgradeDefaultHTML;
+    upgradeBtn.style.cursor = 'pointer';
+  }
+}
 let lastShownSecond = -1; // so the countdown only re-renders when it changes
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -49,6 +63,14 @@ function injectStyles() {
       box-shadow: 0 0 24px rgba(177,75,255,0.6);
     }
     #flash-overlay { transition: opacity 0.15s ease-out; }
+
+    /* Loading spinner for the "creating invoice…" button state. */
+    @keyframes mini-spin { to { transform: rotate(360deg); } }
+    .mini-spinner {
+      display: inline-block; width: 12px; height: 12px; vertical-align: middle;
+      border: 2px solid rgba(247,147,26,0.3); border-top-color: #f7931a;
+      border-radius: 50%; animation: mini-spin 0.7s linear infinite;
+    }
 
     /* Narrow phones: shrink the corner buttons so they don't crowd the top row
        or collide with the bottom controls. */
@@ -101,6 +123,7 @@ export function createHUD(onShoot) {
     <div style="font-size:18px; letter-spacing:0.12em;">⚡ RAPID FIRE</div>
     <div style="font-size:12px; letter-spacing:0.16em; margin-top:5px; opacity:0.8;">${RAPID_FIRE_PRICE} sats &nbsp;·&nbsp; 60s</div>
   `;
+  upgradeDefaultHTML = upgradeBtn.innerHTML; // saved so the loading state can restore it
   upgradeBtn.style.cssText = `
     position: fixed;
     top: 16px;
@@ -289,16 +312,19 @@ async function purchaseRapidFire() {
     return;
   }
 
+  if (purchasing) return; // already creating an invoice — ignore repeat taps
+
+  setUpgradeLoading(true); // immediate feedback while the invoice is created (~2-3s)
   try {
     const { payment_request } = await createInvoice();
+    setUpgradeLoading(false);
     showPaymentModal(payment_request);
   } catch (err) {
     console.warn('purchase failed', err);
-    if (payModalStatus) {
-      payModal.style.display = 'flex';
-      payModalStatus.textContent = 'could not reach payment server — try again';
-      payModalStatus.style.color = '#ff4444';
-    }
+    setUpgradeLoading(false);
+    payModal.style.display = 'flex';
+    payModalStatus.textContent = 'could not reach payment server — try again';
+    payModalStatus.style.color = '#ff4444';
   }
 }
 
