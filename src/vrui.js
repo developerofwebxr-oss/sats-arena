@@ -1,25 +1,31 @@
 import * as THREE from 'three';
-import { isRapidFire } from './upgrade.js';
+import { isRapidFire, getRemainingSeconds } from './upgrade.js';
 import { getAvailableCharges, activateCharge } from './hud.js';
+import { getScore } from './score.js';
 
 /**
- * vrui.js — in-world ACTIVATE panel for immersive VR.
+ * vrui.js — in-world HUD for immersive VR/AR (where DOM isn't visible):
+ *   - ACTIVATE panel (point a controller + trigger to spend a banked charge)
+ *   - SCORE (always shown in-session)
+ *   - COUNTDOWN (shown during rapid-fire)
  *
- * The DOM "✓ PAID — ACTIVATE" prompt isn't visible inside an immersive Quest
- * session, so this is its 3D counterpart: a head-locked panel that appears in
- * front of the player (lower-centre, out of the aim zone) when a charge is banked
- * and rapid-fire isn't running. Pointing a controller at it and pulling the
- * trigger activates the charge instead of firing a shot (xr.js gives this
- * precedence over shooting).
- *
- * Only shown while presenting (renderer.xr.isPresenting); flat/AR use the DOM prompt.
- *
- * Public API (returned by setupVrUI):
- *   updateVrUI()                       — call every frame; head-locks + shows/hides
- *   handleControllerSelect(origin,dir) — returns true if it consumed the trigger
+ * Performance: text is canvas-texture, repainted ONLY when its value changes
+ * (redraw-on-change) — never per frame. Per-frame work is just head-lock matrix
+ * math. Each element is one draw call. Flat/handheld keep the DOM HUD; these gate
+ * on renderer.xr.isPresenting.
  */
 
+// ── Tunable HUD placement (metres from the head; -Z is forward) ───────────────
+// Adjust these on-device. Keep SCORE/COUNTDOWN clear of the centre aim zone and
+// the lower-front ACTIVATE panel.
+const PANEL_OFFSET = new THREE.Vector3(0,  -0.50, -2.0); // ACTIVATE panel (lower-front)
+const SCORE_OFFSET = new THREE.Vector3(0,   0.55, -2.0); // SCORE (upper-front)
+const TIMER_OFFSET = new THREE.Vector3(0,   0.38, -2.0); // COUNTDOWN (just below score)
+const SCORE_WIDTH  = 0.60; // metres wide
+const TIMER_WIDTH  = 0.46;
+
 export function setupVrUI(scene, camera, renderer) {
+  // ── ACTIVATE panel ──────────────────────────────────────────────────────
   const panel = new THREE.Mesh(
     new THREE.PlaneGeometry(0.9, 0.45),
     new THREE.MeshBasicMaterial({ map: makePanelTexture(), transparent: true, side: THREE.DoubleSide }),
@@ -27,35 +33,65 @@ export function setupVrUI(scene, camera, renderer) {
   panel.visible = false;
   scene.add(panel);
 
+  // ── SCORE + COUNTDOWN text sprites (repaint-on-change) ──────────────────────
+  const scoreSprite = createTextSprite(SCORE_WIDTH, '#f7931a'); // orange
+  const timerSprite = createTextSprite(TIMER_WIDTH, '#b14bff'); // magenta
+  scoreSprite.mesh.visible = false;
+  timerSprite.mesh.visible = false;
+  scene.add(scoreSprite.mesh, timerSprite.mesh);
+
   const raycaster = new THREE.Raycaster();
-  // Reused so we don't allocate every frame.
   const _camPos  = new THREE.Vector3();
   const _camQuat = new THREE.Quaternion();
   const _offset  = new THREE.Vector3();
 
-  // Head-locked position: ~2 m in front, dropped below the aim line.
-  const OFFSET = new THREE.Vector3(0, -0.5, -2);
+  // Place a mesh in front of the current head pose, facing the player.
+  function headLock(mesh, offset) {
+    _offset.copy(offset).applyQuaternion(_camQuat);
+    mesh.position.copy(_camPos).add(_offset);
+    mesh.quaternion.copy(_camQuat);
+  }
 
   function updateVrUI() {
-    const show = renderer.xr.isPresenting && !isRapidFire() && getAvailableCharges() > 0;
-    panel.visible = show;
-    if (!show) return;
+    const presenting = renderer.xr.isPresenting;
 
-    // Place in front of the current head pose, facing the player.
+    // Flat/handheld → DOM HUD handles it; hide all in-world UI.
+    if (!presenting) {
+      panel.visible = false;
+      scoreSprite.mesh.visible = false;
+      timerSprite.mesh.visible = false;
+      return;
+    }
+
+    const rapid = isRapidFire();
+
+    // Visibility.
+    panel.visible = !rapid && getAvailableCharges() > 0;
+    scoreSprite.mesh.visible = true;     // always in-session
+    timerSprite.mesh.visible = rapid;    // only during rapid-fire
+
+    // Text — repaint only when the value changes (cheap; protects 72fps).
+    scoreSprite.setText(`SCORE ${getScore()}`);
+    if (rapid) {
+      const secs = getRemainingSeconds();
+      timerSprite.setText(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`);
+    }
+
+    // Head-lock whatever's visible (one cam-pose read per frame).
     const cam = renderer.xr.getCamera();
     cam.getWorldPosition(_camPos);
     cam.getWorldQuaternion(_camQuat);
-    _offset.copy(OFFSET).applyQuaternion(_camQuat);
-    panel.position.copy(_camPos).add(_offset);
-    panel.quaternion.copy(_camQuat);
+    if (panel.visible)            headLock(panel, PANEL_OFFSET);
+    headLock(scoreSprite.mesh, SCORE_OFFSET);
+    if (timerSprite.mesh.visible) headLock(timerSprite.mesh, TIMER_OFFSET);
   }
 
   function handleControllerSelect(origin, direction) {
     if (!panel.visible) return false;
     raycaster.set(origin, direction);
     if (raycaster.intersectObject(panel, false).length > 0) {
-      activateCharge(); // consume a charge → grantRapidFire()
-      return true;      // tell xr.js to swallow this trigger (no shot)
+      activateCharge();
+      return true; // consumed the trigger → no shot
     }
     return false;
   }
@@ -63,7 +99,40 @@ export function setupVrUI(scene, camera, renderer) {
   return { updateVrUI, handleControllerSelect };
 }
 
-// Canvas-texture label, same technique as the coins. Magenta on dark, on-brand.
+// ── Text sprite: a small head-lockable plane whose canvas is repainted only when
+// its text changes. setText() is a no-op when the string is unchanged. ──────────
+function createTextSprite(worldWidth, color) {
+  const W = 256, H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const tex = new THREE.CanvasTexture(canvas);
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldWidth, worldWidth * (H / W)),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }),
+  );
+
+  let last = null;
+  function setText(str) {
+    if (str === last) return; // redraw-on-change only
+    last = str;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 14;
+    ctx.font = 'bold 60px monospace';
+    ctx.fillText(str, W / 2, H / 2);
+    tex.needsUpdate = true; // upload only on change
+  }
+
+  return { mesh, setText };
+}
+
+// Canvas-texture label for the ACTIVATE panel. Magenta on dark, on-brand.
 function makePanelTexture() {
   const W = 512, H = 256;
   const canvas = document.createElement('canvas');
@@ -71,11 +140,9 @@ function makePanelTexture() {
   canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  // Dark rounded background.
   ctx.fillStyle = 'rgba(8,8,14,0.92)';
   ctx.fillRect(0, 0, W, H);
 
-  // Magenta glowing border.
   ctx.strokeStyle = '#b14bff';
   ctx.lineWidth = 8;
   ctx.shadowColor = '#b14bff';
