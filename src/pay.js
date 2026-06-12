@@ -96,6 +96,10 @@ codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startForCo
 
 // Boot: use ?code= if present, else show manual entry.
 const params = new URLSearchParams(location.search);
-const initialCode = params.get('code');
-if (initialCode) startForCode(initialCode);
-else showCodeEntry('');
+const initialCode = (params.get('code') || '').trim().toUpperCase();
+if (initialCode) {
+  codeInput.value = initialCode; // prefill the field so it's visible even if validation falls back to manual entry
+  startForCode(initialCode);
+} else {
+  showCodeEntry('');
+}

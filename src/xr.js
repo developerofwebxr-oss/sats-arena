@@ -108,6 +108,15 @@ function buildController(index, renderer, scene, shootFromRay, onControllerSelec
     rayLine.visible = false;
   });
 
+  // ── squeeze (grip) = EXIT the immersive session ─────────────────────────────
+  // A reliable in-app exit: the menu/system button can be unreliable in-browser,
+  // so the grip button ends the VR/AR session → back to the 2D view. Grip is
+  // distinct from the trigger (shoot/activate), so there's no conflict.
+  group.addEventListener('squeezestart', () => {
+    const session = renderer.xr.getSession();
+    if (session) session.end();
+  });
+
   // ── selectstart ───────────────────────────────────────────────────────────
   // Fired on trigger press (Quest controller) OR screen tap (handheld AR).
   // Both reuse shootFromRay — only the ray source differs:
