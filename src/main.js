@@ -13,6 +13,7 @@ import { setSpawnMode } from './targets.js';
 import { setupModeSwitcher } from './modeswitcher.js';
 import { updateUpgrade } from './upgrade.js';
 import { setupLightning } from './lightning.js';
+import { setupVrUI } from './vrui.js';
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
@@ -21,15 +22,21 @@ const { renderer, scene, camera, environment } = createScene();
 // The first-person blaster. Captured as an object so armode can hide it on phone AR.
 const weapon = setupWeapon(camera, renderer);
 
+// In-world VR ACTIVATE panel. Set up before setupXR so its select handler can be
+// given to the controllers (it takes precedence over shooting when pointed at).
+const vrui = setupVrUI(scene, camera, renderer);
+
 // setupShooter must come before setupXR because setupXR needs shootFromRay.
 // weapon.flashMuzzle is the onFire callback — triggers the muzzle flash on each shot.
 const { onShoot, shootFromRay, updateBursts } = setupShooter(camera, scene, weapon.flashMuzzle);
 
-// setupXR now receives:
-//   renderer     — so xr.getController() and the XR camera work
-//   scene        — so controller Groups are added to the scene graph
-//   shootFromRay — so controller trigger events fire the same hit logic as mouse/touch
-const { updateControllers } = setupXR(renderer, scene, shootFromRay);
+// setupXR receives:
+//   renderer            — so xr.getController() and the XR camera work
+//   scene               — so controller Groups are added to the scene graph
+//   shootFromRay        — controller/handheld trigger → hit logic
+//   vrui.handleControllerSelect — VR controller pointing at the ACTIVATE panel
+//                                 activates a charge instead of firing
+const { updateControllers } = setupXR(renderer, scene, shootFromRay, vrui.handleControllerSelect);
 
 // Walls + ceiling ring go into the environment group (with the radar floor) so
 // AR mode can hide the whole fake world at once.
@@ -77,6 +84,7 @@ renderer.setAnimationLoop(function animate() {
   updateControllers();    // refresh controller ray lines each frame
   updateUpgrade(delta);   // tick the rapid-fire countdown
   updateRapidFireHUD();   // refresh countdown + upgrade button state
+  vrui.updateVrUI();      // head-lock + show/hide the in-world ACTIVATE panel
 
   renderer.render(scene, camera);
 });

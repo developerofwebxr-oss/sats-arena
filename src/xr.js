@@ -20,15 +20,18 @@ import * as THREE from 'three';
 // How long the visual ray line extends from the controller tip (metres).
 const RAY_LENGTH = 5;
 
-export function setupXR(renderer, scene, shootFromRay) {
+// onControllerSelect(origin, direction) → bool: an optional in-world UI handler.
+// If it returns true, it consumed the trigger (e.g. pressed the ACTIVATE panel)
+// and the shot is suppressed.
+export function setupXR(renderer, scene, shootFromRay, onControllerSelect) {
 
   // ── Build both controllers ─────────────────────────────────────────────────
   // getController(0/1) returns a Group whose world matrix Three.js updates
   // automatically each XR frame to match the physical controller pose.
   // Index 0 = first controller to connect, 1 = second. We treat both identically.
   const controllers = [
-    buildController(0, renderer, scene, shootFromRay),
-    buildController(1, renderer, scene, shootFromRay),
+    buildController(0, renderer, scene, shootFromRay, onControllerSelect),
+    buildController(1, renderer, scene, shootFromRay, onControllerSelect),
   ];
 
   // ── updateControllers ─────────────────────────────────────────────────────
@@ -50,7 +53,7 @@ export function setupXR(renderer, scene, shootFromRay) {
 
 // ── buildController ──────────────────────────────────────────────────────────
 // Creates one controller group, its ray line, and wires events.
-function buildController(index, renderer, scene, shootFromRay) {
+function buildController(index, renderer, scene, shootFromRay, onControllerSelect) {
   // getController returns a Group that Three.js XR manager updates each frame.
   const group = renderer.xr.getController(index);
 
@@ -132,6 +135,10 @@ function buildController(index, renderer, scene, shootFromRay) {
       if (!state.connected.value) return;
       _origin.setFromMatrixPosition(group.matrixWorld);
       _direction.set(0, 0, -1).transformDirection(group.matrixWorld).normalize();
+
+      // In-world UI (the ACTIVATE panel) takes precedence: if the controller is
+      // pointing at it, activate and DON'T fire a shot.
+      if (onControllerSelect && onControllerSelect(_origin, _direction)) return;
     }
 
     // Clone so shootFromRay doesn't hold a reference to our reused vectors.

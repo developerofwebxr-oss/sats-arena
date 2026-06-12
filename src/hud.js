@@ -412,12 +412,16 @@ async function purchaseRapidFire() {
   }
 }
 
-// ── activateCharge ──────────────────────────────────────────────────────────
+// ── charge API (used by the DOM prompt and the in-world VR panel) ────────────
+/** Banked, not-yet-activated charges. */
+export function getAvailableCharges() {
+  return Math.max(0, getPaidCount() - activatedCount);
+}
+
 // Consume one banked charge → start rapid-fire. grantRapidFire() stays the single
 // entry point. activatedCount is persisted so a reload can't re-grant the same charge.
-function activateCharge() {
-  const available = getPaidCount() - activatedCount;
-  if (available <= 0) return;
+export function activateCharge() {
+  if (getAvailableCharges() <= 0) return;
   activatedCount += 1;
   saveActivated();
   grantRapidFire();
