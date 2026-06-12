@@ -45,13 +45,14 @@ export function setupXR(renderer, scene, shootFromRay, onControllerSelect) {
         rayLine.geometry.attributes.position.needsUpdate = true;
       }
 
-      // EXIT immersive session on a deliberate LEFT face-button press (X or Y).
-      // xr-standard mapping on Quest Touch: buttons[4]=X, buttons[5]=Y (left hand).
-      // Edge-detected so holding doesn't repeat; ignores trigger(0)/grip(1).
+      // EXIT immersive session on a deliberate lower face-button press, on EITHER
+      // controller. xr-standard mapping on Quest Touch: buttons[4] = X (left hand)
+      // and A (right hand). So X or A exits. Edge-detected so holding doesn't
+      // repeat; ignores trigger (buttons[0]) and grip (buttons[1]).
       const src = state.inputSource;
-      if (src && src.handedness === 'left' && src.gamepad && src.gamepad.buttons) {
+      if (src && src.gamepad && src.gamepad.buttons) {
         const b = src.gamepad.buttons;
-        const pressed = !!((b[4] && b[4].pressed) || (b[5] && b[5].pressed));
+        const pressed = !!(b[4] && b[4].pressed); // X on left, A on right
         if (pressed && !state.exitPrev) {
           const session = renderer.xr.getSession();
           if (session) session.end();

@@ -88,18 +88,29 @@ export function setupWeapon(camera, renderer) {
     weapon.scale.setScalar(CAMERA_SCALE);
   }
 
-  function attachToController() {
-    // getController(0) returns the same Group xr.js already uses — Three caches it.
-    const controller = renderer.xr.getController(0);
-    controller.add(weapon);
+  function attachToControllerGroup(controller) {
+    controller.add(weapon); // getController() returns the same Group xr.js uses
     weapon.position.copy(VR_POS);
     weapon.rotation.copy(VR_EULER);
     weapon.scale.setScalar(VR_SCALE);
   }
 
-  // Swap parenting when entering / leaving VR.
-  renderer.xr.addEventListener('sessionstart', attachToController);
-  renderer.xr.addEventListener('sessionend',   attachToCamera);
+  // The blaster rides the RIGHT hand (most players are right-handed). Handedness is
+  // only known on a controller's 'connected' event, so we attach there. On session
+  // start we attach to controller 0 as a fallback (so the gun is always on a hand),
+  // then move it to the right controller once that one reports in.
+  renderer.xr.addEventListener('sessionstart', () => {
+    attachToControllerGroup(renderer.xr.getController(0));
+  });
+  renderer.xr.addEventListener('sessionend', attachToCamera);
+
+  [0, 1].forEach((i) => {
+    renderer.xr.getController(i).addEventListener('connected', (e) => {
+      if (e.data && e.data.handedness === 'right') {
+        attachToControllerGroup(renderer.xr.getController(i));
+      }
+    });
+  });
 
   // ── Muzzle flash state ──────────────────────────────────────────────────────
   let flashAge = FLASH_DURATION; // start "expired" so it's hidden
