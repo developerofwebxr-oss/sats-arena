@@ -139,17 +139,18 @@ export function createHUD(onShoot) {
   hud.append(countdownEl);
   document.body.appendChild(hud);
 
-  // ── SCORE (top-centre) ──────────────────────────────────────────────────────
+  // ── SCORE (top-left, under the session code) ────────────────────────────────
+  // Left column avoids the top-centre collision with the payment button on a
+  // narrow portrait phone. (In-VR 3D score position is separate, in vrui.js.)
   scoreEl = document.createElement('div');
   scoreEl.id = 'score';
   scoreEl.style.cssText = `
     position: fixed;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 68px;
+    left: 16px;
     font-family: monospace;
-    font-size: 20px;
-    letter-spacing: 0.14em;
+    font-size: 16px;
+    letter-spacing: 0.12em;
     color: #f7931a;
     text-shadow: 0 0 10px #f7931a;
     pointer-events: none;
