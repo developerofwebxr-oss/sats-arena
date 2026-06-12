@@ -31,6 +31,13 @@ const SATOSHI_BURST_SPEED  = 3.5;
 const NORMAL_POINTS  = 1;
 const SATOSHI_POINTS = 50;
 
+// Rapid-fire coin hits get a bigger, faster, multi-colour burst (juice for the
+// paid window). Normal (non-rapid) hits are unchanged.
+const RAPID_BURST_COUNT = 50;
+const RAPID_BURST_SPEED = 4.0;
+const BURST_PALETTE = [0xf7931a, 0xb14bff, 0x00e5ff, 0xffd700] // orange, magenta, cyan, gold
+  .map((c) => new THREE.Color(c));
+
 // onFire — optional callback invoked on every shot fired (hit or miss),
 // e.g. to trigger the weapon muzzle flash.
 export function setupShooter(camera, scene, onFire) {
@@ -54,6 +61,14 @@ export function setupShooter(camera, scene, onFire) {
     color: 0xffd700,
     size: 0.2,
     sizeAttenuation: true,
+  });
+
+  // Rapid-fire coin-hit burst — bigger particles, per-particle colours (palette).
+  const rapidBurstMat = new THREE.PointsMaterial({
+    size: 0.22,
+    sizeAttenuation: true,
+    vertexColors: true, // colour comes from the geometry's 'color' attribute
+    transparent: true,
   });
 
   // ── onShoot ────────────────────────────────────────────────────────────────
@@ -109,9 +124,14 @@ export function setupShooter(camera, scene, onFire) {
         recordHit(SATOSHI_POINTS);
         playSatoshiHitSound();
       } else {
-        // Normal coin.
+        // Normal coin. During rapid-fire, give it the spectacular multi-colour
+        // burst; otherwise the standard orange one (unchanged).
         const hitIndex = targetMeshes.indexOf(hit.object);
-        spawnBurst(hit.point, BURST_PARTICLE_COUNT, BURST_SPEED, burstMat);
+        if (isRapidFire()) {
+          spawnBurst(hit.point, RAPID_BURST_COUNT, RAPID_BURST_SPEED, rapidBurstMat);
+        } else {
+          spawnBurst(hit.point, BURST_PARTICLE_COUNT, BURST_SPEED, burstMat);
+        }
         removeTarget(hitIndex);
         recordHit(NORMAL_POINTS);
         playHitSound();
@@ -145,6 +165,18 @@ export function setupShooter(camera, scene, onFire) {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    // For multi-colour bursts, give each particle a random palette colour.
+    if (material.vertexColors) {
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const c = BURST_PALETTE[(Math.random() * BURST_PALETTE.length) | 0];
+        colors[i * 3]     = c.r;
+        colors[i * 3 + 1] = c.g;
+        colors[i * 3 + 2] = c.b;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    }
 
     const points = new THREE.Points(geo, material);
     scene.add(points);
