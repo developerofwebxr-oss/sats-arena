@@ -21,10 +21,13 @@ const RAPID_FIRE_PRICE = 21; // sats — display + (later) the Lightning invoice
 let countdownEl;
 let upgradeBtn;
 let flashOverlay;
-let payModal;       // payment QR overlay
-let payModalQr;     // <img> for the QR
-let payModalCode;   // session code line
-let payModalStatus; // "waiting…" / error line
+let payModal;        // payment QR overlay
+let payModalQr;      // <img> for the QR
+let payModalCode;    // session code line
+let payModalStatus;  // "waiting…" / error line
+let payModalOpenLink; // <a href="lightning:..."> open-in-wallet button
+let payModalCopyBtn;  // copy-invoice button
+let currentInvoice = ''; // the active BOLT11 string
 let lastShownSecond = -1; // so the countdown only re-renders when it changes
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -204,6 +207,36 @@ function buildPaymentModal() {
   payModalQr.alt = 'Lightning invoice QR';
   qrCard.appendChild(payModalQr);
 
+  // Open in Wallet — a lightning: link so a phone opens its wallet directly
+  // (attendees on a single phone can't scan their own screen).
+  payModalOpenLink = document.createElement('a');
+  payModalOpenLink.textContent = '⚡ OPEN IN WALLET';
+  payModalOpenLink.style.cssText = `
+    display: inline-block; padding: 14px 26px; background: #f7931a; color: #000;
+    font-family: monospace; font-size: 16px; font-weight: bold; letter-spacing: 0.08em;
+    text-decoration: none; border-radius: 4px; cursor: pointer;
+  `;
+  payModalOpenLink.addEventListener('click', (e) => e.stopPropagation());
+
+  // Copy invoice — fallback for pasting into a wallet manually.
+  payModalCopyBtn = document.createElement('button');
+  payModalCopyBtn.textContent = 'COPY INVOICE';
+  payModalCopyBtn.style.cssText = `
+    padding: 10px 20px; background: transparent; color: #f7931a;
+    border: 1px solid #f7931a; font-family: monospace; letter-spacing: 0.1em; cursor: pointer;
+  `;
+  payModalCopyBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(currentInvoice);
+      payModalCopyBtn.textContent = '✓ COPIED';
+      setTimeout(() => { payModalCopyBtn.textContent = 'COPY INVOICE'; }, 1500);
+    } catch {
+      payModalCopyBtn.textContent = 'COPY FAILED';
+    }
+    payModalCopyBtn.blur();
+  });
+
   payModalStatus = document.createElement('div');
   payModalStatus.textContent = '⏳ waiting for payment…';
   payModalStatus.style.cssText = 'font-size: 14px; letter-spacing: 0.08em;';
@@ -217,22 +250,26 @@ function buildPaymentModal() {
   `;
   cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closePaymentModal(); cancelBtn.blur(); });
 
-  payModal.append(title, payModalCode, qrCard, payModalStatus, cancelBtn);
+  payModal.append(title, payModalCode, qrCard, payModalOpenLink, payModalCopyBtn, payModalStatus, cancelBtn);
   document.body.appendChild(payModal);
 }
 
 async function showPaymentModal(invoice) {
+  currentInvoice = invoice;
   const code = getSessionCode();
   payModalCode.textContent = code ? `session ${code}` : '';
   payModalStatus.textContent = '⏳ waiting for payment…';
   payModalStatus.style.color = '#f7931a';
+  // lightning: URI uses the canonical lowercase invoice; tapping opens the wallet.
+  payModalOpenLink.href = `lightning:${invoice}`;
+  payModalCopyBtn.textContent = 'COPY INVOICE';
   payModal.style.display = 'flex';
 
   try {
     // Uppercase the bech32 invoice for QR alphanumeric mode → less dense, easier scan.
     payModalQr.src = await QRCode.toDataURL(invoice.toUpperCase(), { margin: 1, width: 240 });
   } catch {
-    payModalStatus.textContent = 'could not render QR — invoice copied below';
+    payModalStatus.textContent = 'could not render QR — use Open in Wallet or Copy';
   }
 }
 
