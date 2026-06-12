@@ -30,6 +30,11 @@ jobs:
 
       - run: npm ci
       - run: npm run build # outputs dist/ with base=/sats-arena/
+        env:
+          # "on" is QUOTED — unquoted on is a YAML boolean (true). These are not
+          # secrets (public backend URL + a flag); the LNbits key lives only on the backend.
+          VITE_LIGHTNING: "on"
+          VITE_BACKEND_URL: "https://sats-arena-production.up.railway.app"
 
       - uses: actions/upload-pages-artifact@v3
         with:
