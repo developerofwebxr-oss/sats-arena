@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import { playReloadSound } from './audio.js';
 import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
-import { isLightningEnabled, getSessionCode, createInvoice } from './lightning.js';
+import { isLightningEnabled, getSessionCode, getPaidCount, createInvoice } from './lightning.js';
 import { getScore } from './score.js';
 
 /**
@@ -22,8 +22,27 @@ const RAPID_FIRE_PRICE = 21; // sats — display + (later) the Lightning invoice
 let countdownEl;
 let scoreEl;        // running SCORE (top-centre)
 let lastShownScore = -1;
+let codeEl;         // session code (top-left)
+let activatePrompt; // "✓ PAID — ACTIVATE RAPID FIRE" button
 let upgradeBtn;
 let flashOverlay;
+
+// Charge model: payments are banked, not auto-fired.
+let activatedCount = 0;   // charges the player has activated (persisted per code)
+let activatedFor   = '';  // which code activatedCount belongs to
+let shownCode      = '';  // last code rendered in the HUD
+let lastPaid       = 0;   // last paidCount seen (to detect a fresh payment)
+
+function activatedStorageKey(code) { return `satsArena_activated_${code}`; }
+
+// Load the persisted activatedCount for a code (so reloads don't re-grant).
+function loadActivated(code) {
+  activatedFor = code;
+  activatedCount = parseInt(localStorage.getItem(activatedStorageKey(code)) || '0', 10);
+}
+function saveActivated() {
+  if (activatedFor) localStorage.setItem(activatedStorageKey(activatedFor), String(activatedCount));
+}
 let payModal;        // payment QR overlay
 let payModalQr;      // <img> for the QR
 let payModalCode;    // session code line
@@ -135,6 +154,53 @@ export function createHUD(onShoot) {
   `;
   scoreEl.textContent = 'SCORE 0';
   document.body.appendChild(scoreEl);
+
+  // ── Session code (top-left, under the countdown) ────────────────────────────
+  // Shown so it can be read and typed into pay.html on another device.
+  codeEl = document.createElement('div');
+  codeEl.id = 'session-code';
+  codeEl.style.cssText = `
+    position: fixed;
+    top: 44px;
+    left: 16px;
+    font-family: monospace;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    color: #00e5ff;
+    text-shadow: 0 0 8px #00e5ff;
+    pointer-events: none;
+    user-select: none;
+    display: none;
+  `;
+  document.body.appendChild(codeEl);
+
+  // ── Activate prompt (centre) — appears when a payment is banked ─────────────
+  activatePrompt = document.createElement('button');
+  activatePrompt.id = 'activate-prompt';
+  activatePrompt.style.cssText = `
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 18px 30px;
+    background: rgba(0,0,0,0.85);
+    color: #b14bff;
+    border: 1px solid #b14bff;
+    font-family: monospace;
+    font-size: 18px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-shadow: 0 0 10px #b14bff;
+    box-shadow: 0 0 24px rgba(177,75,255,0.5);
+    z-index: 250;
+  `;
+  activatePrompt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activateCharge();
+    activatePrompt.blur();
+  });
+  document.body.appendChild(activatePrompt);
 
   // ── RAPID FIRE purchase button (top-right) ──────────────────────────────────
   // One tap = buy 60s of rapid-fire. Shows the price. Top-right keeps it clear of
@@ -325,7 +391,7 @@ function closePaymentModal() {
 // ── purchaseRapidFire ───────────────────────────────────────────────────────
 // Flag OFF → instant fake grant (safe fallback / what ships until we flip it on).
 // Flag ON  → real Lightning: create a 21-sat invoice, show the QR, and wait. The
-//   lightning poll detects payment and calls handlePaymentConfirmed() (below).
+//   poll detects payment, closes the modal, and banks a charge to ACTIVATE.
 async function purchaseRapidFire() {
   if (!isLightningEnabled()) {
     grantRapidFire();
@@ -350,11 +416,14 @@ async function purchaseRapidFire() {
   }
 }
 
-// ── handlePaymentConfirmed ──────────────────────────────────────────────────
-// Wired to lightning.js's onPaid. Same-device flow auto-activates on payment.
-// grantRapidFire() stays the single entry point — real payment now drives it.
-export function handlePaymentConfirmed() {
-  closePaymentModal();
+// ── activateCharge ──────────────────────────────────────────────────────────
+// Consume one banked charge → start rapid-fire. grantRapidFire() stays the single
+// entry point. activatedCount is persisted so a reload can't re-grant the same charge.
+function activateCharge() {
+  const available = getPaidCount() - activatedCount;
+  if (available <= 0) return;
+  activatedCount += 1;
+  saveActivated();
   grantRapidFire();
   triggerFlash();
   playReloadSound();
@@ -398,5 +467,36 @@ export function updateRapidFireHUD() {
     // Just expired — hide once.
     lastShownSecond = -1;
     countdownEl.style.display = 'none';
+  }
+
+  // ── Session code + charge model (Lightning only) ───────────────────────────
+  if (!isLightningEnabled()) return;
+
+  const code = getSessionCode();
+  if (code && code !== shownCode) {
+    shownCode = code;
+    loadActivated(code);          // restore banked-vs-activated for this code
+    lastPaid = getPaidCount();    // baseline so we don't flash "paid" for old payments
+    codeEl.textContent = `SESSION ${code}`;
+    codeEl.style.display = 'block';
+  }
+  if (!code) return;
+
+  // A fresh payment arrived → close the pay-QR modal (if the player paid here).
+  const paid = getPaidCount();
+  if (paid > lastPaid) {
+    lastPaid = paid;
+    closePaymentModal();
+  }
+
+  // Banked, unactivated charges → show the ACTIVATE prompt (unless already firing).
+  const available = paid - activatedCount;
+  if (available > 0 && !active) {
+    activatePrompt.textContent = available > 1
+      ? `✓ PAID ×${available} — ACTIVATE RAPID FIRE`
+      : '✓ PAID — ACTIVATE RAPID FIRE';
+    activatePrompt.style.display = 'block';
+  } else {
+    activatePrompt.style.display = 'none';
   }
 }

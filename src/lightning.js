@@ -3,17 +3,19 @@
  *
  * Talks to the Sats Arena backend (which holds the LNbits Invoice key — never
  * here). Session-centric: a device gets a short code on load, creates invoices
- * against it, and polls for settled payments.
+ * against it, and polls the backend for the session's settled-payment count.
  *
- * Gated by the VITE_LIGHTNING flag so the deployed game stays in fake-grant mode
- * until we explicitly flip it on. Same-device flow for now (auto-activate on pay);
- * session-code pairing + activation gate come later.
+ * It only TRACKS payments (getPaidCount). The charge/activation model in hud.js
+ * decides when to grant rapid-fire — payments are banked, not auto-fired.
+ *
+ * Gated by the VITE_LIGHTNING flag.
  *
  * Public API:
- *   isLightningEnabled()        — is the flag on?
- *   getSessionCode()            — current 4-char code (or null)
- *   setupLightning(onPaid)      — create/rehydrate session + start polling
- *   createInvoice()             — POST a 21-sat invoice, returns { payment_request, payment_hash }
+ *   isLightningEnabled()   — is the flag on?
+ *   getSessionCode()       — current 4-char code (or null)
+ *   getPaidCount()         — total settled payments the backend has seen for this code
+ *   setupLightning()       — create/rehydrate session + start polling
+ *   createInvoice()        — POST a 21-sat invoice, returns { payment_request, payment_hash }
  */
 
 const LIGHTNING_ON = import.meta.env.VITE_LIGHTNING === 'on';
@@ -23,22 +25,17 @@ const BACKEND_URL  = (import.meta.env.VITE_BACKEND_URL
 const POLL_MS     = 2500;
 const STORAGE_KEY = 'satsArena_sessionCode';
 
-let code         = null;
-let lastSeenPaid = 0;     // payments already credited locally — don't re-grant on rehydrate
-let onPaidCb     = null;
+let code      = null;
+let paidCount = 0; // latest from the backend for this code
 
 export function isLightningEnabled() { return LIGHTNING_ON; }
 export function getSessionCode() { return code; }
+export function getPaidCount() { return paidCount; }
 
-/**
- * setupLightning(onPaid) — call once at startup.
- * onPaid() is invoked once per newly-detected payment.
- */
-export async function setupLightning(onPaid) {
-  onPaidCb = onPaid;
+/** setupLightning() — call once at startup. Creates/rehydrates a session + polls. */
+export async function setupLightning() {
   if (!LIGHTNING_ON) return;
 
-  // Rehydrate a stored code if the backend still knows it; else make a new one.
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored && await sessionExists(stored)) {
     code = stored;
@@ -63,7 +60,7 @@ async function createSession() {
   try {
     const res = await fetch(`${BACKEND_URL}/session`, { method: 'POST' });
     const data = await res.json();
-    lastSeenPaid = 0;
+    paidCount = 0;
     return data.code;
   } catch (err) {
     console.warn('Lightning: session create failed', err);
@@ -71,13 +68,12 @@ async function createSession() {
   }
 }
 
-// Returns true if the code is still live; also seeds lastSeenPaid so previously
-// counted payments aren't replayed after a reload.
+// Returns true if the code is still live; seeds paidCount from the backend.
 async function sessionExists(c) {
   try {
     const res = await fetch(`${BACKEND_URL}/session/${c}`);
     const data = await res.json();
-    if (data.exists) lastSeenPaid = data.paidCount || 0;
+    if (data.exists) paidCount = data.paidCount || 0;
     return !!data.exists;
   } catch {
     return false;
@@ -89,10 +85,8 @@ function startPolling() {
     try {
       const res = await fetch(`${BACKEND_URL}/session/${code}`);
       const data = await res.json();
-      if (data.exists && typeof data.paidCount === 'number' && data.paidCount > lastSeenPaid) {
-        const newPayments = data.paidCount - lastSeenPaid;
-        lastSeenPaid = data.paidCount;
-        for (let i = 0; i < newPayments; i++) onPaidCb?.();
+      if (data.exists && typeof data.paidCount === 'number') {
+        paidCount = data.paidCount;
       }
     } catch {
       // transient — try again next tick

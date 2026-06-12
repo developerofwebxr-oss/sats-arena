@@ -3,7 +3,7 @@ import { createScene } from './scene.js';
 import { setupXR } from './xr.js';
 import { buildArena } from './arena.js';
 import { spawnTargets, updateTargets } from './targets.js';
-import { createHUD, updateRapidFireHUD, handlePaymentConfirmed } from './hud.js';
+import { createHUD, updateRapidFireHUD } from './hud.js';
 import { setupInput } from './input.js';
 import { setupShooter } from './shoot.js';
 import { setupMovement } from './movement.js';
@@ -45,10 +45,10 @@ setupARMode({ renderer, scene, environment, weapon, setSpawnMode });
 // enterVR / enterAR / exitToScreen methods.
 setupModeSwitcher(renderer);
 
-// Real Lightning (behind VITE_LIGHTNING). Creates/rehydrates a session and polls;
-// on a confirmed payment it calls handlePaymentConfirmed() → grantRapidFire().
-// No-op when the flag is off, so the fake-grant fallback stays intact.
-setupLightning(handlePaymentConfirmed);
+// Real Lightning (behind VITE_LIGHTNING). Creates/rehydrates a session + polls
+// paidCount; the HUD charge model banks payments and the player activates them.
+// No-op when the flag is off.
+setupLightning();
 
 // Wire mouse click and touch tap → onShoot (flat / non-VR mode).
 // In VR mode, xr.js handles shooting via selectstart on the controllers.
