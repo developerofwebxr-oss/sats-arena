@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import { playReloadSound } from './audio.js';
 import { grantRapidFire, isRapidFire, getRemainingSeconds } from './upgrade.js';
-import { isLightningEnabled, getSessionCode, getPaidCount, createInvoice } from './lightning.js';
+import { isLightningEnabled, getSessionCode, getPaidCount, createInvoice, validateCode, createInvoiceForCode } from './lightning.js';
 import { getScore } from './score.js';
 
 /**
@@ -50,6 +50,9 @@ let payModalStatus;  // "waiting…" / error line
 let payModalOpenLink; // <a href="lightning:..."> open-in-wallet button
 let payModalCopyBtn;  // copy-invoice button
 let currentInvoice = ''; // the active BOLT11 string
+let chooser;          // "pay for this device / a headset" panel
+let chooserInput;     // headset session-code input
+let chooserStatus;    // chooser status line
 let upgradeDefaultHTML = ''; // RAPID FIRE button's normal markup (restored after loading)
 let purchasing = false;      // guards against double-taps while creating an invoice
 
@@ -229,7 +232,7 @@ export function createHUD(onShoot) {
 
   upgradeBtn.addEventListener('click', (e) => {
     e.stopPropagation(); // don't let the click reach the canvas shoot handler
-    purchaseRapidFire();
+    openChooser();       // choose: pay for this device, or for a headset's code
     upgradeBtn.blur();   // drop focus so SPACE shoots instead of re-clicking this
   });
 
@@ -282,6 +285,117 @@ export function createHUD(onShoot) {
   document.body.appendChild(flashOverlay);
 
   buildPaymentModal();
+  buildChooserPanel();
+}
+
+// ── Chooser panel: pay for THIS device, or for a VR/AR headset's code ─────────
+function buildChooserPanel() {
+  chooser = document.createElement('div');
+  chooser.id = 'pay-chooser';
+  chooser.style.cssText = `
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 300;
+    flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    font-family: monospace; color: #f7931a; text-align: center; padding: 24px;
+  `;
+
+  const title = document.createElement('div');
+  title.textContent = '⚡ RAPID FIRE — 21 sats';
+  title.style.cssText = 'font-size: 20px; letter-spacing: 0.12em; text-shadow: 0 0 8px #f7931a;';
+
+  // ── Choice 1: this device ──
+  const thisBtn = document.createElement('button');
+  thisBtn.innerHTML = `<div style="font-size:17px; letter-spacing:0.1em;">▶ PAY FOR THIS DEVICE</div>
+    <div style="font-size:12px; opacity:0.75; margin-top:5px; letter-spacing:0.12em;">play right here</div>`;
+  thisBtn.style.cssText = chooserBtnCss('#f7931a') + 'min-width:280px;';
+  thisBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeChooser();
+    purchaseRapidFire(); // existing same-device flow
+  });
+
+  // ── Divider ──
+  const orLine = document.createElement('div');
+  orLine.textContent = '— or —';
+  orLine.style.cssText = 'font-size: 12px; opacity: 0.5; letter-spacing: 0.2em;';
+
+  // ── Choice 2: a VR/AR headset's code ──
+  const headsetLabel = document.createElement('div');
+  headsetLabel.innerHTML = `Paying for a <b>VR/AR headset?</b><br>Enter the session code it's showing:`;
+  headsetLabel.style.cssText = 'font-size: 14px; letter-spacing: 0.06em; line-height: 1.5; color: #00e5ff; text-shadow: 0 0 8px #00e5ff;';
+
+  chooserInput = document.createElement('input');
+  chooserInput.maxLength = 4;
+  chooserInput.autocomplete = 'off';
+  chooserInput.setAttribute('autocapitalize', 'characters');
+  chooserInput.placeholder = 'CODE';
+  chooserInput.style.cssText = `
+    font-family: monospace; font-size: 24px; letter-spacing: 0.3em; text-align: center;
+    text-transform: uppercase; width: 170px; padding: 10px; background: #111;
+    color: #00e5ff; border: 1px solid #00e5ff; border-radius: 4px;
+  `;
+  chooserInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleHeadsetPay(); });
+
+  const getInvoiceBtn = document.createElement('button');
+  getInvoiceBtn.textContent = 'GET INVOICE';
+  getInvoiceBtn.style.cssText = chooserBtnCss('#00e5ff');
+  getInvoiceBtn.addEventListener('click', (e) => { e.stopPropagation(); handleHeadsetPay(); });
+
+  chooserStatus = document.createElement('div');
+  chooserStatus.style.cssText = 'font-size: 13px; min-height: 18px; letter-spacing: 0.06em;';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'CANCEL';
+  cancelBtn.style.cssText = 'margin-top:4px; padding:10px 20px; background:transparent; color:#888; border:1px solid #555; font-family:monospace; letter-spacing:0.1em; cursor:pointer;';
+  cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closeChooser(); });
+
+  chooser.append(title, thisBtn, orLine, headsetLabel, chooserInput, getInvoiceBtn, chooserStatus, cancelBtn);
+  document.body.appendChild(chooser);
+}
+
+function chooserBtnCss(color) {
+  return `padding:14px 24px; background:rgba(0,0,0,0.6); color:${color}; border:1px solid ${color};
+    font-family:monospace; text-align:center; cursor:pointer; text-shadow:0 0 8px ${color};`;
+}
+
+function openChooser() {
+  chooserInput.value = '';
+  chooserStatus.textContent = '';
+  chooser.style.display = 'flex';
+}
+function closeChooser() {
+  chooser.style.display = 'none';
+}
+
+// Validate the entered headset code, create an invoice for IT, show the modal.
+// The payer does not poll the code — the headset (which owns it) does.
+async function handleHeadsetPay() {
+  const code = (chooserInput.value || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(code)) {
+    chooserStatus.textContent = 'enter the 4-character code';
+    chooserStatus.style.color = '#ffaa00';
+    return;
+  }
+  chooserStatus.textContent = 'checking session…';
+  chooserStatus.style.color = '#f7931a';
+
+  if (!await validateCode(code)) {
+    chooserStatus.textContent = 'session not found or expired — check the code';
+    chooserStatus.style.color = '#ff4444';
+    return;
+  }
+
+  chooserStatus.textContent = 'creating invoice…';
+  try {
+    const { payment_request } = await createInvoiceForCode(code);
+    closeChooser();
+    showPaymentModal(payment_request, code);
+  } catch {
+    chooserStatus.textContent = 'could not reach payment server — try again';
+    chooserStatus.style.color = '#ff4444';
+  }
 }
 
 // ── Payment modal (QR) ──────────────────────────────────────────────────────
@@ -368,9 +482,8 @@ function buildPaymentModal() {
   document.body.appendChild(payModal);
 }
 
-async function showPaymentModal(invoice) {
+async function showPaymentModal(invoice, code = getSessionCode()) {
   currentInvoice = invoice;
-  const code = getSessionCode();
   payModalCode.textContent = code ? `session ${code}` : '';
   payModalStatus.textContent = '⏳ waiting for payment…';
   payModalStatus.style.color = '#f7931a';

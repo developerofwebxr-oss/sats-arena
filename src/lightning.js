@@ -54,6 +54,27 @@ export async function createInvoice() {
   return res.json(); // { payment_hash, payment_request }
 }
 
+// ── Pay for ANOTHER device's session (cross-device: a VR/AR headset's code) ────
+// The payer does NOT poll the code — the owning device does (no-double-poll safety).
+
+/** True if the code is a live session on the backend. */
+export async function validateCode(c) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/session/${c}`);
+    const data = await res.json();
+    return !!data.exists;
+  } catch {
+    return false;
+  }
+}
+
+/** Create a 21-sat invoice for an arbitrary session code (not this device's). */
+export async function createInvoiceForCode(c) {
+  const res = await fetch(`${BACKEND_URL}/session/${c}/invoice`, { method: 'POST' });
+  if (!res.ok) throw new Error(`invoice failed (${res.status})`);
+  return res.json();
+}
+
 // ── Internals ──────────────────────────────────────────────────────────────────
 
 async function createSession() {
