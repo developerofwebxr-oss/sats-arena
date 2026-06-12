@@ -233,6 +233,9 @@ export function createHUD(onShoot) {
     upgradeBtn.blur();   // drop focus so SPACE shoots instead of re-clicking this
   });
 
+  // No Lightning backend → no purchase path → hide the button (no dead button).
+  if (!isLightningEnabled()) upgradeBtn.style.display = 'none';
+
   document.body.appendChild(upgradeBtn);
 
   // ── On-screen SHOOT button (bottom-right) ───────────────────────────────────
@@ -389,17 +392,10 @@ function closePaymentModal() {
 }
 
 // ── purchaseRapidFire ───────────────────────────────────────────────────────
-// Flag OFF → instant fake grant (safe fallback / what ships until we flip it on).
-// Flag ON  → real Lightning: create a 21-sat invoice, show the QR, and wait. The
-//   poll detects payment, closes the modal, and banks a charge to ACTIVATE.
+// One path everywhere: create a 21-sat invoice → show the QR → wait. The poll
+// detects payment, closes the modal, and banks a charge to ACTIVATE. There is no
+// auto-fire — paying never starts rapid-fire directly; activation does.
 async function purchaseRapidFire() {
-  if (!isLightningEnabled()) {
-    grantRapidFire();
-    triggerFlash();
-    playReloadSound();
-    return;
-  }
-
   if (purchasing) return; // already creating an invoice — ignore repeat taps
 
   setUpgradeLoading(true); // immediate feedback while the invoice is created (~2-3s)
