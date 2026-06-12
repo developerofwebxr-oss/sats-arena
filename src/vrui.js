@@ -102,7 +102,11 @@ export function setupVrUI(scene, camera, renderer) {
 // ── Text sprite: a small head-lockable plane whose canvas is repainted only when
 // its text changes. setText() is a no-op when the string is unchanged. ──────────
 function createTextSprite(worldWidth, color) {
-  const W = 256, H = 128;
+  // 512×256 keeps the same 2:1 aspect (plane size unchanged) but gives more pixels.
+  const W = 512, H = 256;
+  const BASE_FONT = 120; // px; shrunk per-draw if the text is too wide to fit
+  const MAX_W = W * 0.9; // leave a small margin so glyphs never touch the edge
+
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -119,12 +123,22 @@ function createTextSprite(worldWidth, color) {
     if (str === last) return; // redraw-on-change only
     last = str;
     ctx.clearRect(0, 0, W, H);
+
+    // Auto-fit: start at BASE_FONT, shrink if the text would overflow the width
+    // (so long scores like "SCORE 9999" stay fully visible and centred).
+    let fontPx = BASE_FONT;
+    ctx.font = `bold ${fontPx}px monospace`;
+    const measured = ctx.measureText(str).width;
+    if (measured > MAX_W) {
+      fontPx = Math.floor(fontPx * (MAX_W / measured));
+      ctx.font = `bold ${fontPx}px monospace`;
+    }
+
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.font = 'bold 60px monospace';
+    ctx.shadowBlur = 18;
     ctx.fillText(str, W / 2, H / 2);
     tex.needsUpdate = true; // upload only on change
   }
