@@ -44,6 +44,10 @@ export function isDragging() { return _dragging; }
 // look stands down so the two don't fight over yaw/pitch.
 let gyroActive = false;
 
+// Set by setupGyro — clears the gyro anchor so the next reading re-captures the
+// current pose (the "recenter" action). Reuses the existing, tested anchor logic.
+let gyroRecenter = null;
+
 // ── Main setup ─────────────────────────────────────────────────────────────────
 export function setupMovement(camera, renderer) {
   // YXZ rotation order is required for correct FPS-style camera behaviour.
@@ -55,6 +59,7 @@ export function setupMovement(camera, renderer) {
 
   // Update functions collected here; called each frame by updateMovement().
   const updaters = [];
+  let recenterBtn = null; // mobile-only "⟲ RECENTER" button (created below)
 
   if (!isMobile) {
     // ── Desktop ───────────────────────────────────────────────────────────────
@@ -66,14 +71,21 @@ export function setupMovement(camera, renderer) {
     // when available/granted and takes over via the gyroActive flag.
     updaters.push(setupTouchLook(renderer));
     setupMobileGyro(updaters, renderer, camera);
+    recenterBtn = createRecenterButton();
   }
 
   function updateMovement(delta) {
     // Skip all movement handling while inside a VR session —
     // the XR manager drives the camera pose directly.
-    if (renderer.xr.isPresenting) return;
+    if (renderer.xr.isPresenting) {
+      if (recenterBtn) recenterBtn.style.display = 'none'; // DOM not used in immersive
+      return;
+    }
 
     updaters.forEach(fn => fn(delta));
+
+    // Show the recenter button only while the gyroscope is actually driving.
+    if (recenterBtn) recenterBtn.style.display = gyroActive ? 'block' : 'none';
 
     // When the gyroscope is driving, it sets camera.quaternion directly (absolute
     // orientation) — don't overwrite it with the yaw/pitch euler below.
@@ -85,6 +97,38 @@ export function setupMovement(camera, renderer) {
   }
 
   return { updateMovement };
+}
+
+// ── Recenter button (mobile, gyro only) ─────────────────────────────────────────
+// Tap (held straight) to re-level the view — fixes any mis-angled gyro calibration
+// without a reload. Placed bottom-left, above the mode switcher.
+function createRecenterButton() {
+  const btn = document.createElement('button');
+  btn.id = 'recenter-btn';
+  btn.innerHTML = `<div style="font-size:15px; letter-spacing:0.1em;">⟲ RECENTER</div>
+    <div style="font-size:10px; opacity:0.7; margin-top:3px;">tilted? hold straight &amp; tap</div>`;
+  btn.style.cssText = `
+    display: none;
+    position: fixed;
+    bottom: 96px;
+    left: 16px;
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.8);
+    color: #00e5ff;
+    border: 1px solid #00e5ff;
+    font-family: monospace;
+    text-align: center;
+    cursor: pointer;
+    text-shadow: 0 0 8px #00e5ff;
+    z-index: 200;
+  `;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();   // don't let the tap reach the canvas shoot handler
+    if (gyroRecenter) gyroRecenter();
+    btn.blur();
+  });
+  document.body.appendChild(btn);
+  return btn;
 }
 
 // ── Mouse drag ─────────────────────────────────────────────────────────────────
@@ -328,6 +372,10 @@ function setupGyro(camera) {
 
     gyroActive = true; // gyro takes over; touch-drag look stands down
   });
+
+  // "Recenter": drop the anchor so the next reading re-anchors at the current
+  // pose — re-levels the view however the phone is held right now.
+  gyroRecenter = () => { haveAnchor = false; };
 
   return (delta) => {
     if (!gyroActive || !haveAnchor) return;
