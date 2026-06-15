@@ -23,9 +23,9 @@ const BURST_PARTICLE_COUNT = 30;
 const BURST_LIFETIME       = 0.6;  // seconds
 const BURST_SPEED          = 2.5;  // outward metres per second
 
-// Satoshi (special) hits get a bigger, faster burst for extra juice.
-const SATOSHI_BURST_COUNT  = 60;
-const SATOSHI_BURST_SPEED  = 3.5;
+// Satoshi (special) hits get a big, explosive, star-shaped burst for max juice.
+const SATOSHI_BURST_COUNT  = 120;
+const SATOSHI_BURST_SPEED  = 5.5;
 
 // Points awarded per hit.
 const NORMAL_POINTS  = 1;
@@ -56,11 +56,17 @@ export function setupShooter(camera, scene, onFire) {
     sizeAttenuation: true, // particles shrink with distance (perspective)
   });
 
-  // Distinct burst material for Satoshi hits — bigger gold particles.
-  const satoshiBurstMat = new THREE.PointsMaterial({
+  // Satoshi hits — big gold STAR-shaped particles. The star comes from a
+  // point-sprite texture (canvas ★ on transparent bg), not real geometry.
+  // alphaTest keeps the star edges crisp and cheap (cut-out, not heavy blending).
+  const satoshiStarMat = new THREE.PointsMaterial({
+    map: createStarTexture(),
     color: 0xffd700,
-    size: 0.2,
+    size: 0.28,
     sizeAttenuation: true,
+    alphaTest: 0.5,
+    transparent: true, // lets the existing opacity fade-out work
+    depthWrite: false,
   });
 
   // Rapid-fire coin-hit burst — bigger particles, per-particle colours (palette).
@@ -118,8 +124,8 @@ export function setupShooter(camera, scene, onFire) {
 
     if (hit) {
       if (hit.object.userData.special) {
-        // Satoshi target — big points, big gold burst, distinct sound.
-        spawnBurst(hit.point, SATOSHI_BURST_COUNT, SATOSHI_BURST_SPEED, satoshiBurstMat);
+        // Satoshi target — big points, explosive gold star burst, distinct sound.
+        spawnBurst(hit.point, SATOSHI_BURST_COUNT, SATOSHI_BURST_SPEED, satoshiStarMat);
         removeSpecial();
         recordHit(SATOSHI_POINTS);
         playSatoshiHitSound();
@@ -219,4 +225,25 @@ export function setupShooter(camera, scene, onFire) {
   }
 
   return { onShoot, shootFromRay, updateBursts };
+}
+
+// ── Star point-sprite texture (drawn once, shared) ──────────────────────────────
+// A white ★ on a transparent background. Tinted gold by the material's color.
+function createStarTexture() {
+  const S = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0, 0, S, S); // transparent background
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(S * 0.9)}px serif`;
+  ctx.fillText('★', S / 2, S / 2 + S * 0.04);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
 }

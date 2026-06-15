@@ -70,6 +70,11 @@ const { updateMovement } = setupMovement(camera, renderer);
 // ─── Clock ────────────────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
 
+// Reused each frame: the player's world position, fed to updateTargets so the
+// coin group can follow the player in AR. Use the XR camera while presenting
+// (its pose is the head/device); the flat camera otherwise.
+const _playerPos = new THREE.Vector3();
+
 // ─── Animation loop ───────────────────────────────────────────────────────────
 // setAnimationLoop is XR-aware: on desktop it acts like rAF; in VR it's driven
 // by the headset refresh (72–120 Hz) and receives an XRFrame as the second arg.
@@ -78,7 +83,8 @@ renderer.setAnimationLoop(function animate() {
   const elapsed = clock.getElapsedTime();
 
   updateMovement(delta);  // rotate camera from mouse/keys/gyro/joystick
-  updateTargets(elapsed);
+  (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(_playerPos);
+  updateTargets(elapsed, _playerPos); // coins follow the player in AR (drift-proof)
   updateBursts(delta);
   weapon.updateWeapon(delta); // fade the muzzle flash
   updateControllers();    // refresh controller ray lines each frame

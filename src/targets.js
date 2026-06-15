@@ -35,6 +35,13 @@ const SPAWN_MODES = {
 // Active spawn config — defaults to VR. Switched at runtime by setSpawnMode().
 let spawnCfg = SPAWN_MODES['vr'];
 
+// All coins + the Satoshi target live under this group. In AR we move the group
+// to follow the player each frame, so the swarm stays centred on them and doesn't
+// recede as the AR reference-space origin drifts. In VR/flat the group stays at
+// world origin (unchanged arena behaviour).
+const targetGroup = new THREE.Group();
+let arAnchored = false; // true in AR modes → group follows the player
+
 // ── Coin geometry ──────────────────────────────────────────────────────────────
 // CylinderGeometry(radiusTop, radiusBottom, height, radialSegments)
 // 0.28m radius, 0.06m thick — a chunky coin. 32 segments = smooth edge.
@@ -187,6 +194,8 @@ function makeTargetData(mesh) {
  * spawnTargets(scene) — create all coin targets and add them to the scene.
  */
 export function spawnTargets(scene) {
+  scene.add(targetGroup); // coins live under this group so AR can follow the player
+
   for (let i = 0; i < MAX_TARGETS; i++) {
     const mesh = new THREE.Mesh(COIN_GEO, COIN_MATS);
 
@@ -197,7 +206,7 @@ export function spawnTargets(scene) {
     mesh.rotation.z = Math.random() * Math.PI * 2; // random initial tilt
 
     mesh.position.copy(randomTargetPosition());
-    scene.add(mesh);
+    targetGroup.add(mesh);
     targetMeshes.push(mesh);
     targetData.push(makeTargetData(mesh));
   }
@@ -209,7 +218,7 @@ export function spawnTargets(scene) {
   specialMesh.rotation.x = Math.PI / 2;
   specialMesh.visible = false;
   specialMesh.userData.special = true;
-  scene.add(specialMesh);
+  targetGroup.add(specialMesh);
   targetMeshes.push(specialMesh);
 }
 
@@ -220,6 +229,8 @@ export function spawnTargets(scene) {
  */
 export function setSpawnMode(mode) {
   spawnCfg = SPAWN_MODES[mode] || SPAWN_MODES['vr'];
+  // AR modes follow the player (drift-proof); VR/flat stay at world origin.
+  arAnchored = (mode === 'quest-ar' || mode === 'handheld-ar');
   // Reposition every COIN (not the special — it's managed separately and stays
   // hidden outside rapid-fire) so none are stranded in the old layout.
   for (let i = 0; i < MAX_TARGETS; i++) {
@@ -284,10 +295,18 @@ function updateSpecial(time) {
 }
 
 /**
- * updateTargets(time) — animate visible coins (and the Satoshi target) each frame.
- * time = elapsed seconds from the Three.js clock.
+ * updateTargets(time, playerPos) — animate visible coins (and the Satoshi target).
+ * time = elapsed seconds. playerPos = the player's world position (THREE.Vector3);
+ * in AR the coin group follows it (XZ) so the swarm stays centred on the player
+ * and immune to AR origin drift. In VR/flat the group stays at world origin.
  */
-export function updateTargets(time) {
+export function updateTargets(time, playerPos) {
+  if (arAnchored && playerPos) {
+    targetGroup.position.set(playerPos.x, 0, playerPos.z);
+  } else if (targetGroup.position.lengthSq() !== 0) {
+    targetGroup.position.set(0, 0, 0); // reset for VR/flat (e.g. after leaving AR)
+  }
+
   // Coins only — the special is index MAX_TARGETS, handled by updateSpecial().
   for (let i = 0; i < MAX_TARGETS; i++) {
     const mesh = targetMeshes[i];
