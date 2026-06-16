@@ -102,7 +102,11 @@ async function sessionExists(c) {
 }
 
 function startPolling() {
-  setInterval(async () => {
+  // Non-overlapping loop: wait POLL_MS AFTER each poll resolves before the next,
+  // so a slow request can never overlap the next one (which would otherwise hit
+  // the backend concurrently for the same code). setTimeout-after-completion
+  // instead of setInterval.
+  const tick = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/session/${code}`);
       const data = await res.json();
@@ -111,6 +115,9 @@ function startPolling() {
       }
     } catch {
       // transient — try again next tick
+    } finally {
+      setTimeout(tick, POLL_MS);
     }
-  }, POLL_MS);
+  };
+  tick();
 }

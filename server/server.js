@@ -111,22 +111,30 @@ app.get('/session/:code', async (req, res) => {
 
   session.lastSeen = Date.now();
 
-  // Check each still-open invoice; move settled ones out and count them.
-  const stillOpen = [];
-  for (const hash of session.openInvoices) {
+  // Check each still-open invoice and count settled ones EXACTLY ONCE — even under
+  // concurrent polls (multiple tabs/devices sharing the code, or overlapping poll
+  // intervals). The count+removal is done synchronously AFTER the await, gated on
+  // the invoice still being open: the first concurrent request to resolve removes
+  // it and increments; any other request then sees idx === -1 and skips. Iterate a
+  // snapshot so concurrent mutation of openInvoices is safe.
+  for (const hash of [...session.openInvoices]) {
+    let paid = false;
     try {
-      if (await lnbitsIsPaid(hash)) {
-        session.paidCount += 1;
-      } else {
-        stillOpen.push(hash);
-      }
+      paid = await lnbitsIsPaid(hash);
     } catch (err) {
-      // On a transient LNbits error, keep the invoice open and try again next poll.
+      // Transient LNbits error — leave it open and retry on the next poll.
       console.error('check error', err.message);
-      stillOpen.push(hash);
+      continue;
+    }
+    if (paid) {
+      const idx = session.openInvoices.indexOf(hash); // still open?
+      if (idx !== -1) {                               // first to see it wins
+        session.openInvoices.splice(idx, 1);          // remove + count atomically
+        session.paidCount += 1;                       // (no await between → no interleave)
+        paymentToCode.delete(hash);
+      }
     }
   }
-  session.openInvoices = stillOpen;
 
   res.json({ exists: true, paidCount: session.paidCount });
 });
