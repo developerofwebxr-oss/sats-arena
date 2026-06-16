@@ -111,7 +111,7 @@ function createRecenterButton() {
     <div style="
       width: 56px; height: 56px; border-radius: 50%; margin: 0 auto;
       display: flex; align-items: center; justify-content: center;
-      font-size: 26px; color: #00e5ff;
+      font-size: 34px; color: #00e5ff;
       background: rgba(0,229,255,0.07); border: 1px solid rgba(0,229,255,0.55);
       text-shadow: 0 0 8px rgba(0,229,255,0.7); box-shadow: 0 0 10px rgba(0,229,255,0.25);
     ">⟲</div>

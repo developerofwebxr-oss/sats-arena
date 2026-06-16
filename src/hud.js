@@ -105,6 +105,13 @@ function injectStyles() {
       #upgrade-btn > div:last-child  { font-size: 10px !important; }
       #shoot-btn { right: 14px; }
     }
+
+    /* Landscape: drop the corner buttons to the bottom row (≈ the mode-switcher
+       level) instead of floating mid-screen. Portrait position is unchanged.
+       !important overrides the inline bottom set in JS. */
+    @media (orientation: landscape) {
+      #shoot-btn, #recenter-btn { bottom: 24px !important; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -252,10 +259,18 @@ export function createHUD(onShoot) {
     <div style="
       width: 92px; height: 92px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 46px; color: #00e5ff;
       background: rgba(0,229,255,0.18); border: 2px solid #00e5ff;
-      text-shadow: 0 0 14px #00e5ff; box-shadow: 0 0 22px rgba(0,229,255,0.55);
-    ">◎</div>
+      box-shadow: 0 0 22px rgba(0,229,255,0.55);
+    ">
+      <svg width="66" height="66" viewBox="0 0 100 100" fill="none" stroke="#00e5ff"
+           stroke-width="5" stroke-linecap="round" style="filter: drop-shadow(0 0 4px #00e5ff);">
+        <circle cx="50" cy="50" r="15" />
+        <line x1="50" y1="4"  x2="50" y2="30" />
+        <line x1="50" y1="70" x2="50" y2="96" />
+        <line x1="4"  y1="50" x2="30" y2="50" />
+        <line x1="70" y1="50" x2="96" y2="50" />
+      </svg>
+    </div>
     <div style="margin-top: 6px; font-size: 13px; letter-spacing: 0.18em; color: #00e5ff; text-shadow: 0 0 8px #00e5ff;">SHOOT</div>`;
   // Bottom-right, above the mode switcher. Width = circle so it sits cleanly in
   // the corner in both portrait and landscape.
