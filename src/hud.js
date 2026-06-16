@@ -103,7 +103,7 @@ function injectStyles() {
       #upgrade-btn { padding: 9px 12px; top: 12px; right: 12px; }
       #upgrade-btn > div:first-child { font-size: 14px !important; }
       #upgrade-btn > div:last-child  { font-size: 10px !important; }
-      #shoot-btn { padding: 12px 18px; font-size: 16px; bottom: 92px; right: 14px; }
+      #shoot-btn { right: 14px; }
     }
   `;
   document.head.appendChild(style);
@@ -247,22 +247,31 @@ export function createHUD(onShoot) {
   // reusing the same fire path as click/tap/space, so it respects rapid-fire too.
   const shootBtn = document.createElement('button');
   shootBtn.id = 'shoot-btn';
-  shootBtn.textContent = '◎ SHOOT';
-  // Raised above the bottom-centre mode switcher so they never overlap, even on
-  // a ~390px portrait phone (switcher sits at bottom ~20–84px; SHOOT floats above).
+  // Round primary button: bright cyan circle with a ◎ target icon, "SHOOT" below.
+  shootBtn.innerHTML = `
+    <div style="
+      width: 92px; height: 92px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 46px; color: #00e5ff;
+      background: rgba(0,229,255,0.18); border: 2px solid #00e5ff;
+      text-shadow: 0 0 14px #00e5ff; box-shadow: 0 0 22px rgba(0,229,255,0.55);
+    ">◎</div>
+    <div style="margin-top: 6px; font-size: 13px; letter-spacing: 0.18em; color: #00e5ff; text-shadow: 0 0 8px #00e5ff;">SHOOT</div>`;
+  // Bottom-right, above the mode switcher. Width = circle so it sits cleanly in
+  // the corner in both portrait and landscape.
   shootBtn.style.cssText = `
     position: fixed;
-    bottom: 96px;
+    bottom: 90px;
     right: 20px;
-    padding: 16px 26px;
-    background: rgba(0,0,0,0.8);
-    color: #00e5ff;
-    border: 1px solid #00e5ff;
+    width: 92px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: transparent;
+    border: none;
+    padding: 0;
     font-family: monospace;
-    font-size: 18px;
-    letter-spacing: 0.1em;
     cursor: pointer;
-    text-shadow: 0 0 8px #00e5ff;
     z-index: 200;
   `;
   shootBtn.addEventListener('click', (e) => {

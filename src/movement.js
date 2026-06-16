@@ -105,21 +105,29 @@ export function setupMovement(camera, renderer) {
 function createRecenterButton() {
   const btn = document.createElement('button');
   btn.id = 'recenter-btn';
-  btn.innerHTML = `<div style="font-size:15px; letter-spacing:0.1em;">⟲ RECENTER</div>
-    <div style="font-size:10px; opacity:0.7; margin-top:3px;">tilted? hold straight &amp; tap</div>`;
+  // Round secondary button: smaller, dimmer cyan circle with a ⟲ icon, label below.
+  // Block layout + text-align:center so the existing display:'block' toggle works.
+  btn.innerHTML = `
+    <div style="
+      width: 56px; height: 56px; border-radius: 50%; margin: 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; color: #00e5ff;
+      background: rgba(0,229,255,0.07); border: 1px solid rgba(0,229,255,0.55);
+      text-shadow: 0 0 8px rgba(0,229,255,0.7); box-shadow: 0 0 10px rgba(0,229,255,0.25);
+    ">⟲</div>
+    <div style="margin-top: 5px; font-size: 10px; letter-spacing: 0.06em; line-height: 1.3; color: #00e5ff; opacity: 0.75;">RECENTER<br>tilted? hold straight</div>`;
   btn.style.cssText = `
     display: none;
     position: fixed;
-    bottom: 96px;
+    bottom: 90px;
     left: 16px;
-    padding: 10px 16px;
-    background: rgba(0,0,0,0.8);
-    color: #00e5ff;
-    border: 1px solid #00e5ff;
-    font-family: monospace;
+    width: 92px;
     text-align: center;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-family: monospace;
     cursor: pointer;
-    text-shadow: 0 0 8px #00e5ff;
     z-index: 200;
   `;
   btn.addEventListener('click', (e) => {
