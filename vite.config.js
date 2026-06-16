@@ -8,9 +8,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // `command` is 'serve' for dev (localhost) and 'build' for the production bundle.
 export default defineConfig(({ command }) => ({
-  // GitHub Pages serves this project under /sats-arena/, so the production build
-  // needs that base or assets 404. Dev stays at root '/' so localhost is unchanged.
-  base: command === 'build' ? '/sats-arena/' : '/',
+  // GitHub Pages serves this project under a repo path, so the production build
+  // needs that base or assets 404. Default is the LIVE repo (/sats-arena/); the
+  // testing repo's workflow overrides it via BASE_PATH=/sats-arena-testing/.
+  // Dev stays at root '/' so localhost is unchanged.
+  base: command === 'build' ? (process.env.BASE_PATH || '/sats-arena/') : '/',
 
   // Two pages: the game (index.html) and the lightweight payment page (pay.html).
   build: {

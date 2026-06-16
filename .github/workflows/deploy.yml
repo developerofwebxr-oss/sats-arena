@@ -1,6 +1,8 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages (LIVE)
 
-# Build and deploy the Vite app whenever main is updated.
+# Build and deploy the LIVE site whenever main is updated.
+# Guarded to the live repo so this workflow file (which also exists in the testing
+# repo via promotion) can never deploy a live-base build to the testing Pages site.
 on:
   push:
     branches: [main]
@@ -19,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # Only deploy the LIVE site from the live repo.
+    if: github.repository == 'developerofwebxr-oss/sats-arena'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +46,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.repository == 'developerofwebxr-oss/sats-arena'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
