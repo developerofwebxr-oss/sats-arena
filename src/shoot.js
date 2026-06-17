@@ -29,7 +29,11 @@ const SATOSHI_BURST_SPEED  = 5.5;
 
 // Points awarded per hit.
 const NORMAL_POINTS  = 1;
-const SATOSHI_POINTS = 50;
+const SATOSHI_POINTS = 21;
+
+// "+21" floating score popup above a bursted Satoshi star.
+const FLOATER_LIFETIME = 1.1; // seconds before it fully fades
+const FLOATER_RISE     = 1.1; // metres it drifts upward over its life
 
 // Rapid-fire coin hits get a bigger, faster, multi-colour burst (juice for the
 // paid window). Normal (non-rapid) hits are unchanged.
@@ -48,6 +52,9 @@ export function setupShooter(camera, scene, onFire) {
   // Kept small; bursts expire in ~0.35s so rarely more than 2–3 alive at once.
   const bursts = [];
 
+  // Active "+21" floating-score sprites — each has { sprite, age }.
+  const floaters = [];
+
   // ── Shared burst material ──────────────────────────────────────────────────
   // One material instance reused by all bursts — no extra GPU state changes.
   const burstMat = new THREE.PointsMaterial({
@@ -56,17 +63,18 @@ export function setupShooter(camera, scene, onFire) {
     sizeAttenuation: true, // particles shrink with distance (perspective)
   });
 
-  // Satoshi hits — big gold STAR-shaped particles. The star comes from a
-  // point-sprite texture (canvas ★ on transparent bg), not real geometry.
+  // Satoshi hits — big MULTI-COLOURED STAR confetti. The star shape comes from a
+  // point-sprite texture (white canvas ★ on transparent bg); vertexColors tints
+  // each star a random palette colour (white base map × per-particle colour).
   // alphaTest keeps the star edges crisp and cheap (cut-out, not heavy blending).
   const satoshiStarMat = new THREE.PointsMaterial({
     map: createStarTexture(),
-    color: 0xffd700,
     size: 0.28,
     sizeAttenuation: true,
     alphaTest: 0.5,
-    transparent: true, // lets the existing opacity fade-out work
+    transparent: true,    // lets the existing opacity fade-out work
     depthWrite: false,
+    vertexColors: true,   // per-particle confetti colours from the palette
   });
 
   // Rapid-fire coin-hit burst — bigger particles, per-particle colours (palette).
@@ -124,8 +132,10 @@ export function setupShooter(camera, scene, onFire) {
 
     if (hit) {
       if (hit.object.userData.special) {
-        // Satoshi target — big points, explosive gold star burst, distinct sound.
+        // Satoshi target — big points, explosive multi-colour star burst, a
+        // floating "+21" popup, and a distinct sound.
         spawnBurst(hit.point, SATOSHI_BURST_COUNT, SATOSHI_BURST_SPEED, satoshiStarMat);
+        spawnFloater(`+${SATOSHI_POINTS}`, hit.point);
         removeSpecial();
         recordHit(SATOSHI_POINTS);
         playSatoshiHitSound();
@@ -190,6 +200,24 @@ export function setupShooter(camera, scene, onFire) {
     bursts.push({ points, velocities, age: 0, count });
   }
 
+  // ── spawnFloater ─────────────────────────────────────────────────────────────
+  // A camera-facing "+21" sprite that pops above the hit point, drifts up, and
+  // fades. Sprites always billboard the camera, so it reads in flat, AR, and VR.
+  function spawnFloater(text, origin) {
+    const mat = new THREE.SpriteMaterial({
+      map: createTextTexture(text),
+      transparent: true,
+      depthWrite: false,
+      depthTest: false, // always draw on top of coins/bursts
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(origin);
+    sprite.position.y += 0.35;        // start just above the star
+    sprite.scale.set(0.7, 0.35, 1);   // world-space size (w, h)
+    scene.add(sprite);
+    floaters.push({ sprite, age: 0 });
+  }
+
   // ── updateBursts ──────────────────────────────────────────────────────────
   // Called every frame. delta = seconds since last frame.
   function updateBursts(delta) {
@@ -222,6 +250,23 @@ export function setupShooter(camera, scene, onFire) {
       burst.points.material.opacity = 1 - burst.age / BURST_LIFETIME;
       burst.points.material.transparent = true;
     }
+
+    // Animate "+21" floaters — drift up and fade, then dispose.
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.age += delta;
+      if (f.age >= FLOATER_LIFETIME) {
+        scene.remove(f.sprite);
+        f.sprite.material.map.dispose();
+        f.sprite.material.dispose();
+        floaters.splice(i, 1);
+        continue;
+      }
+      f.sprite.position.y += FLOATER_RISE * delta;
+      // Hold full opacity briefly, then fade over the back half of the life.
+      const t = f.age / FLOATER_LIFETIME;
+      f.sprite.material.opacity = t < 0.4 ? 1 : 1 - (t - 0.4) / 0.6;
+    }
   }
 
   return { onShoot, shootFromRay, updateBursts };
@@ -242,6 +287,32 @@ function createStarTexture() {
   ctx.textBaseline = 'middle';
   ctx.font = `bold ${Math.floor(S * 0.9)}px serif`;
   ctx.fillText('★', S / 2, S / 2 + S * 0.04);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// ── "+21" floating-score texture (drawn per popup) ───────────────────────────────
+// Bold gold text with a dark outline so it stays legible against any background.
+function createTextTexture(text) {
+  const W = 256, H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 84px sans-serif';
+
+  // Dark outline for contrast, then gold fill.
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(text, W / 2, H / 2);
+  ctx.fillStyle = '#ffd700';
+  ctx.fillText(text, W / 2, H / 2);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;

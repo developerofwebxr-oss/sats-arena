@@ -10,7 +10,6 @@ import { getScore } from './score.js';
  * Free-to-play HUD (no balance / currency):
  *   - RAPID FIRE purchase button (top-right) → one tap buys 60s of rapid-fire
  *   - Rapid-fire countdown (top-left) while active
- *   - White flash on activation
  *   - On-screen SHOOT button (bottom-right)
  *
  * Shooting is free and unlimited. The upgrade purchase IS the upgrade — there's
@@ -25,7 +24,6 @@ let lastShownScore = -1;
 let codeEl;         // session code (top-left)
 let activatePrompt; // "✓ PAID — ACTIVATE RAPID FIRE" button
 let upgradeBtn;
-let flashOverlay;
 
 // Charge model: payments are banked, not auto-fired.
 let activatedCount = 0;   // charges the player has activated (persisted per code)
@@ -87,7 +85,6 @@ function injectStyles() {
       text-shadow: 0 0 10px #b14bff;
       box-shadow: 0 0 24px rgba(177,75,255,0.6);
     }
-    #flash-overlay { transition: opacity 0.15s ease-out; }
 
     /* Loading spinner for the "creating invoice…" button state. */
     @keyframes mini-spin { to { transform: rotate(360deg); } }
@@ -295,19 +292,6 @@ export function createHUD(onShoot) {
     shootBtn.blur();       // drop focus so SPACE doesn't re-click this button
   });
   document.body.appendChild(shootBtn);
-
-  // ── Flash overlay ──────────────────────────────────────────────────────────
-  flashOverlay = document.createElement('div');
-  flashOverlay.id = 'flash-overlay';
-  flashOverlay.style.cssText = `
-    position: fixed;
-    inset: 0;
-    background: white;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 199;
-  `;
-  document.body.appendChild(flashOverlay);
 
   buildPaymentModal();
   buildChooserPanel();
@@ -563,18 +547,7 @@ export function activateCharge() {
   activatedCount += 1;
   saveActivated();
   grantRapidFire();
-  triggerFlash();
   playReloadSound();
-}
-
-// ── triggerFlash ──────────────────────────────────────────────────────────────
-function triggerFlash() {
-  flashOverlay.style.transition = 'none';
-  flashOverlay.style.opacity    = '0.85';
-  requestAnimationFrame(() => {
-    flashOverlay.style.transition = 'opacity 0.4s ease-out';
-    flashOverlay.style.opacity    = '0';
-  });
 }
 
 // ── updateRapidFireHUD ──────────────────────────────────────────────────────
