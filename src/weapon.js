@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import gunModelUrl from './assets/sats-arena-new-gun.glb?url';
 
 /**
@@ -47,8 +48,14 @@ const MODEL_EULER = new THREE.Euler(0, 0, 0);      // rotate the barrel to face 
 // new model's muzzle. Kept as a constant for easy on-device adjustment.
 const FLASH_POS = new THREE.Vector3(0, 0.02, -0.44);
 
-// One shared loader for the whole app.
+// One shared loader for the whole app. The GLB is Draco-compressed, so a
+// DRACOLoader is required to decode its geometry. The decoder is self-hosted in
+// public/draco/ (no CDN dependency — works offline at the venue); served at the
+// build's base path via BASE_URL so it resolves on both test and live.
 const gltfLoader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
+gltfLoader.setDRACOLoader(dracoLoader);
 
 export function setupWeapon(camera, renderer) {
   // ── Muzzle flash ────────────────────────────────────────────────────────────
