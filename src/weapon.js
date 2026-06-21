@@ -20,7 +20,7 @@ import gunModelUrl from './assets/sats-arena-better-gun.glb?url';
  */
 
 // Muzzle flash fades from full to zero over this many seconds.
-const FLASH_DURATION = 0.1;
+const FLASH_DURATION = 0.12;
 
 // ── Whole-weapon placement (UNCHANGED from the original blaster) ─────────────
 // These position/scale the entire weapon group; the model sits inside it.
@@ -65,8 +65,8 @@ const MODEL_EULER = new THREE.Euler(0, Math.PI / 2, 0); // long axis X → forwa
 
 // Muzzle-flash placement at the (new) barrel tip + its size — tune to the model's
 // muzzle. Kept as constants for easy on-device adjustment.
-const FLASH_POS  = new THREE.Vector3(0, 0.0, -0.5);
-const FLASH_SIZE = 0.42; // world-space sprite size of the bang burst
+const FLASH_POS  = new THREE.Vector3(0, -0.10, -0.36); // at the new model's muzzle tip
+const FLASH_SIZE = 0.62; // world-space sprite size of the bang burst
 
 // One shared loader for the whole app. The GLB is Draco-compressed, so a
 // DRACOLoader is required to decode its geometry. The decoder is self-hosted in
@@ -78,11 +78,6 @@ dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 gltfLoader.setDRACOLoader(dracoLoader);
 
 export function setupWeapon(camera, renderer) {
-  // TEMP debug: hold the muzzle flash lit so it can be screenshotted on desktop
-  // (a 0.1s flash is too brief to catch, and query params are stripped in the
-  // review browser). HARDCODED true for verification — revert before promotion.
-  const FLASH_TEST = true;
-
   // ── Muzzle flash ────────────────────────────────────────────────────────────
   // A billboarded SPRITE carrying a jagged star-burst texture — reads as an energy
   // "bang", not a square. A Sprite always faces the camera, so it looks identical
@@ -100,8 +95,8 @@ export function setupWeapon(camera, renderer) {
   const flash = new THREE.Sprite(flashMat);
   flash.position.copy(FLASH_POS);     // at the barrel tip
   flash.scale.set(FLASH_SIZE, FLASH_SIZE, 1);
+  flash.frustumCulled = false;        // first-person, always on screen
   flash.visible = false;
-  if (typeof window !== 'undefined') window.__flash = flash; // TEMP debug handle
 
   // ── Group everything ────────────────────────────────────────────────────────
   // The group holds the muzzle flash immediately; the GLB model is added into it
@@ -213,7 +208,6 @@ export function setupWeapon(camera, renderer) {
 
   // ── Muzzle flash state ──────────────────────────────────────────────────────
   let flashAge = FLASH_DURATION; // start "expired" so it's hidden
-  if (FLASH_TEST) flashMuzzle();  // light it immediately for screenshotting
 
   /** Trigger the muzzle flash. Called on every shot fired. */
   function flashMuzzle() {
@@ -228,7 +222,6 @@ export function setupWeapon(camera, renderer) {
 
   /** Called every frame. Fades the muzzle flash out. */
   function updateWeapon(delta) {
-    if (FLASH_TEST) { flash.visible = true; flash.material.opacity = 1; return; }
     if (!flash.visible) return;
 
     flashAge += delta;
@@ -294,14 +287,14 @@ function createMuzzleTexture() {
   ctx.closePath();
   const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, outer);
   fill.addColorStop(0, 'rgba(255,255,255,1)');
-  fill.addColorStop(0.3, 'rgba(255,210,120,1)');
-  fill.addColorStop(1, 'rgba(247,147,26,0.25)');
+  fill.addColorStop(0.35, 'rgba(255,205,100,0.98)');
+  fill.addColorStop(1, 'rgba(247,147,26,0.6)'); // brighter tips so spikes read
   ctx.fillStyle = fill;
   ctx.fill();
 
-  // Hot white core.
+  // Hot white core — kept small so the spiky shape dominates, not a white blob.
   ctx.beginPath();
-  ctx.arc(cx, cy, S * 0.12, 0, Math.PI * 2);
+  ctx.arc(cx, cy, S * 0.08, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.fill();
 
