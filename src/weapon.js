@@ -75,10 +75,35 @@ export function setupWeapon(camera, renderer) {
   // ── Load the GLB gun model (once) ────────────────────────────────────────────
   // Loaded a single time and reused. Added into the weapon group when ready, so a
   // slow load never delays attachment — the model just pops in sub-second.
+  console.log('[gun] loading GLB from', gunModelUrl);
   gltfLoader.load(
     gunModelUrl,
     (gltf) => {
       const model = gltf.scene;
+
+      // ── DIAGNOSTICS ──────────────────────────────────────────────────────────
+      // Measure the model BEFORE we scale it, so we know its true authored size,
+      // and inspect its meshes/materials to rule out a material/lighting issue.
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      let meshCount = 0;
+      const mats = new Set();
+      model.traverse((o) => {
+        if (o.isMesh) {
+          meshCount++;
+          const m = o.material;
+          (Array.isArray(m) ? m : [m]).forEach((mat) => mat && mats.add(mat.type));
+        }
+      });
+      console.log('[gun] LOADED ✓', {
+        rawSize: [size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3)],
+        center: [center.x.toFixed(3), center.y.toFixed(3), center.z.toFixed(3)],
+        meshCount,
+        materials: [...mats],
+        willScaleBy: MODEL_SCALE,
+      });
+
       model.position.copy(MODEL_POS);
       model.rotation.copy(MODEL_EULER);
       model.scale.setScalar(MODEL_SCALE);
@@ -92,9 +117,12 @@ export function setupWeapon(camera, renderer) {
         }
       });
       weapon.add(model);
+      console.log('[gun] added to weapon group; group children =', weapon.children.length);
     },
-    undefined,
-    (err) => console.warn('gun model failed to load', err),
+    (p) => {
+      if (p.total) console.log(`[gun] loading ${Math.round((p.loaded / p.total) * 100)}%`);
+    },
+    (err) => console.error('[gun] LOAD FAILED ✗', err),
   );
 
   // Start parented to the camera (flat mode).
