@@ -101,6 +101,7 @@ export function setupWeapon(camera, renderer) {
   flash.position.copy(FLASH_POS);     // at the barrel tip
   flash.scale.set(FLASH_SIZE, FLASH_SIZE, 1);
   flash.visible = false;
+  if (typeof window !== 'undefined') window.__flash = flash; // TEMP debug handle
 
   // ── Group everything ────────────────────────────────────────────────────────
   // The group holds the muzzle flash immediately; the GLB model is added into it
