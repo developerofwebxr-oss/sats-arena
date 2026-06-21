@@ -50,13 +50,13 @@ const VR_SCALE = 0.7;
 // Correct the imported model's own size / origin / orientation so it sits like a
 // held gun (barrel pointing forward along −Z). These apply to the model INSIDE
 // the weapon group, so adjusting them never disturbs the placement above.
-// Raw model is 0.181 × 0.586 × 1.135 m (measured), pivot at its base
-// (center.y ≈ 0.293). Scale up a bit, and sit it LOW within the group so the
-// gun rises from the bottom edge exactly like the old black-box blaster did
-// (the group placement below is unchanged — only the model's offset moves it).
-const MODEL_SCALE = 0.46;                          // a bit bigger than before
-const MODEL_POS   = new THREE.Vector3(0, -0.26, -0.02); // pushed down to the bottom edge
-const MODEL_EULER = new THREE.Euler(0, 0, 0);      // barrel already faces −Z
+// Raw model is 1.152 × 0.571 × 0.204 m (measured): its long axis is X, so the
+// barrel points sideways — rotate 90° about Y to face it forward (−Z). Vertical
+// center ≈ 0.285, so it sits LOW within the group (rising from the bottom edge)
+// like the old blaster. Scale slightly larger than the previous gun.
+const MODEL_SCALE = 0.50;                          // slightly larger than the last gun (0.46)
+const MODEL_POS   = new THREE.Vector3(0, -0.26, 0); // pushed down to the bottom edge
+const MODEL_EULER = new THREE.Euler(0, Math.PI / 2, 0); // long axis X → forward −Z
 
 // Muzzle-flash position at the (new) barrel tip — tune if the flash sits off the
 // new model's muzzle. Kept as a constant for easy on-device adjustment.
