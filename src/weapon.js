@@ -63,9 +63,10 @@ const MODEL_SCALE = 0.50;                          // slightly larger than the l
 const MODEL_POS   = new THREE.Vector3(0, -0.26, 0); // pushed down to the bottom edge
 const MODEL_EULER = new THREE.Euler(0, Math.PI / 2, 0); // long axis X → forward −Z
 
-// Muzzle-flash position at the (new) barrel tip — tune if the flash sits off the
-// new model's muzzle. Kept as a constant for easy on-device adjustment.
-const FLASH_POS = new THREE.Vector3(0, 0.02, -0.44);
+// Muzzle-flash placement at the (new) barrel tip + its size — tune to the model's
+// muzzle. Kept as constants for easy on-device adjustment.
+const FLASH_POS  = new THREE.Vector3(0, 0.0, -0.5);
+const FLASH_SIZE = 0.42; // world-space sprite size of the bang burst
 
 // One shared loader for the whole app. The GLB is Draco-compressed, so a
 // DRACOLoader is required to decode its geometry. The decoder is self-hosted in
@@ -77,19 +78,27 @@ dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 gltfLoader.setDRACOLoader(dracoLoader);
 
 export function setupWeapon(camera, renderer) {
+  // TEMP debug: ?flashtest=1 holds the muzzle flash lit so it can be screenshotted
+  // on desktop (a 0.1s flash is too brief to capture). Removed before promotion.
+  const FLASH_TEST = new URLSearchParams(window.location.search).get('flashtest') === '1';
+
   // ── Muzzle flash ────────────────────────────────────────────────────────────
-  // A small flat plane at the barrel tip, additive orange, invisible until firing.
-  const flashGeo = new THREE.PlaneGeometry(0.18, 0.18);
-  const flashMat = new THREE.MeshBasicMaterial({
-    color: 0xf7931a,
+  // A billboarded SPRITE carrying a jagged star-burst texture — reads as an energy
+  // "bang", not a square. A Sprite always faces the camera, so it looks identical
+  // in flat, mobile, VR, and AR and can never go edge-on invisible. Additive
+  // gold/orange glow, invisible until a shot fires.
+  const flashMat = new THREE.SpriteMaterial({
+    map: createMuzzleTexture(),
+    color: 0xffffff,
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
-    depthWrite: false, // additive glow shouldn't occlude things behind it
-    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: false, // always draw on top of the barrel so it's never occluded
   });
-  const flash = new THREE.Mesh(flashGeo, flashMat);
-  flash.position.copy(FLASH_POS); // just past the barrel tip
+  const flash = new THREE.Sprite(flashMat);
+  flash.position.copy(FLASH_POS);     // at the barrel tip
+  flash.scale.set(FLASH_SIZE, FLASH_SIZE, 1);
   flash.visible = false;
 
   // ── Group everything ────────────────────────────────────────────────────────
@@ -202,18 +211,22 @@ export function setupWeapon(camera, renderer) {
 
   // ── Muzzle flash state ──────────────────────────────────────────────────────
   let flashAge = FLASH_DURATION; // start "expired" so it's hidden
+  if (FLASH_TEST) flashMuzzle();  // light it immediately for screenshotting
 
   /** Trigger the muzzle flash. Called on every shot fired. */
   function flashMuzzle() {
     flashAge = 0;
     flash.visible = true;
     flash.material.opacity = 1;
-    // Random roll so repeated flashes don't look identical.
-    flash.rotation.z = Math.random() * Math.PI;
+    // Spin + size jitter so repeated bangs never look identical.
+    flash.material.rotation = Math.random() * Math.PI * 2;
+    const j = FLASH_SIZE * (0.85 + Math.random() * 0.4);
+    flash.scale.set(j, j, 1);
   }
 
   /** Called every frame. Fades the muzzle flash out. */
   function updateWeapon(delta) {
+    if (FLASH_TEST) { flash.visible = true; flash.material.opacity = 1; return; }
     if (!flash.visible) return;
 
     flashAge += delta;
@@ -235,4 +248,62 @@ export function setupWeapon(camera, renderer) {
   }
 
   return { updateWeapon, flashMuzzle, setHidden };
+}
+
+// ── Muzzle-flash burst texture (drawn once, shared) ──────────────────────────────
+// A jagged, irregular star-burst on a transparent background: a soft radial glow,
+// an uneven multi-spike polygon (random spike lengths → not a clean star), and a
+// hot white core. Gold/orange to match the neon/Bitcoin look. Additive blending
+// on the sprite turns this into a glowing "bang".
+function createMuzzleTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const cx = S / 2, cy = S / 2;
+  ctx.clearRect(0, 0, S, S);
+
+  // Soft outer glow.
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, S / 2);
+  glow.addColorStop(0, 'rgba(255,240,200,0.9)');
+  glow.addColorStop(0.3, 'rgba(247,147,26,0.7)');
+  glow.addColorStop(0.7, 'rgba(247,147,26,0.18)');
+  glow.addColorStop(1, 'rgba(247,147,26,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, S / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Irregular spiky burst — alternating long/short points with random jitter.
+  const spikes = 13;
+  const outer = S * 0.48;
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const ang = (i / (spikes * 2)) * Math.PI * 2;
+    const isOuter = i % 2 === 0;
+    const r = isOuter
+      ? outer * (0.6 + Math.random() * 0.4)   // long spikes, uneven
+      : S * (0.1 + Math.random() * 0.08);      // short inner notches
+    const x = cx + Math.cos(ang) * r;
+    const y = cy + Math.sin(ang) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, outer);
+  fill.addColorStop(0, 'rgba(255,255,255,1)');
+  fill.addColorStop(0.3, 'rgba(255,210,120,1)');
+  fill.addColorStop(1, 'rgba(247,147,26,0.25)');
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  // Hot white core.
+  ctx.beginPath();
+  ctx.arc(cx, cy, S * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
 }
