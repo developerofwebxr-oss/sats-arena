@@ -41,10 +41,12 @@ const VR_SCALE = 0.7;
 // held gun (barrel pointing forward along −Z). These apply to the model INSIDE
 // the weapon group, so adjusting them never disturbs the placement above.
 // Raw model is 0.181 × 0.586 × 1.135 m (measured), pivot at its base
-// (center.y ≈ 0.293). Scale to ≈0.4 m long and recenter on the group origin.
-const MODEL_SCALE = 0.35;                              // 1.135 m → ≈0.40 m long
-const MODEL_POS   = new THREE.Vector3(0, -0.103, -0.019); // = −center × scale (recenter)
-const MODEL_EULER = new THREE.Euler(0, 0, 0);          // tune if barrel faces wrong way
+// (center.y ≈ 0.293). Scale up a bit, and sit it LOW within the group so the
+// gun rises from the bottom edge exactly like the old black-box blaster did
+// (the group placement below is unchanged — only the model's offset moves it).
+const MODEL_SCALE = 0.46;                          // a bit bigger than before
+const MODEL_POS   = new THREE.Vector3(0, -0.26, -0.02); // pushed down to the bottom edge
+const MODEL_EULER = new THREE.Euler(0, 0, 0);      // barrel already faces −Z
 
 // Muzzle-flash position at the (new) barrel tip — tune if the flash sits off the
 // new model's muzzle. Kept as a constant for easy on-device adjustment.
@@ -80,6 +82,21 @@ export function setupWeapon(camera, renderer) {
   // once it finishes loading (below). Placement isn't blocked on the load.
   const weapon = new THREE.Group();
   weapon.add(flash);
+
+  // ── Dedicated gun lighting ───────────────────────────────────────────────────
+  // The model uses PBR (MeshPhysicalMaterial) and the scene is near-black, so it
+  // looked dark/muddy. These lights are CHILDREN of the weapon group, so they
+  // ride with the gun in flat, VR, and AR (where the environment is hidden) and
+  // light only the gun's neighbourhood. Warm key + cool fill make the Bitcoin
+  // gold/details read crisply. Tune intensities here.
+  const KEY_INTENSITY  = 8;
+  const FILL_INTENSITY = 4;
+  const LIGHT_DISTANCE = 2;   // metres — kept local so it doesn't wash the scene
+  const gunKey = new THREE.PointLight(0xfff2dd, KEY_INTENSITY, LIGHT_DISTANCE, 2);
+  gunKey.position.set(0.25, 0.35, 0.2);   // above / front / right of the gun
+  const gunFill = new THREE.PointLight(0x9fd8ff, FILL_INTENSITY, LIGHT_DISTANCE, 2);
+  gunFill.position.set(-0.3, 0.0, 0.3);   // opposite side, softer cool fill
+  weapon.add(gunKey, gunFill);
 
   // ── Load the GLB gun model (once) ────────────────────────────────────────────
   // Loaded a single time and reused. Added into the weapon group when ready, so a
