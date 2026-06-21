@@ -35,7 +35,12 @@ const CAMERA_EULER = new THREE.Euler(0.05, -0.08, 0); // slight inward tilt
 const CAMERA_SCALE = 1.0;
 
 // Coarse pointer or a small min-dimension → treat as a phone for gun placement.
+// TEMP debug override (?gunmobile=1 / ?gundesktop=1) lets us verify each
+// placement on desktop; removed with the [gun] diagnostics before promotion.
 function isMobileView() {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('gunmobile') === '1') return true;
+  if (q.get('gundesktop') === '1') return false;
   return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
          Math.min(window.innerWidth, window.innerHeight) < 600;
 }
