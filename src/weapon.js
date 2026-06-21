@@ -103,13 +103,13 @@ export function setupWeapon(camera, renderer) {
           (Array.isArray(m) ? m : [m]).forEach((mat) => mat && mats.add(mat.type));
         }
       });
-      console.log('[gun] LOADED ✓', {
-        rawSize: [size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3)],
-        center: [center.x.toFixed(3), center.y.toFixed(3), center.z.toFixed(3)],
+      console.log('[gun] LOADED ✓ ' + JSON.stringify({
+        rawSize: [+size.x.toFixed(3), +size.y.toFixed(3), +size.z.toFixed(3)],
+        center: [+center.x.toFixed(3), +center.y.toFixed(3), +center.z.toFixed(3)],
         meshCount,
         materials: [...mats],
         willScaleBy: MODEL_SCALE,
-      });
+      }));
 
       model.position.copy(MODEL_POS);
       model.rotation.copy(MODEL_EULER);
