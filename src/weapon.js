@@ -1,22 +1,28 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import gunModelUrl from './assets/sats-arena-new-gun.glb?url';
 
 /**
- * weapon.js — a simple low-poly first-person blaster.
+ * weapon.js — a fancy Bitcoin-themed first-person blaster loaded from a GLB.
  *
- * Built from merged primitives (one draw call), with glowing cyan neon edges
- * (one draw call) and a muzzle flash (one draw call) = 3 draw calls total.
+ * The model is loaded ONCE via GLTFLoader and reused. It rides inside a "weapon"
+ * Group whose placement (vs. the camera in flat mode, vs. the controller in VR)
+ * is unchanged from the original blaster — only the visual model is swapped. The
+ * muzzle flash and all shooting/raycasting logic are untouched.
  *
  * Placement:
  *   Desktop / mobile → child of the camera, parked bottom-center-right.
  *   Quest VR         → reparented to controller 0 so it rides the hand.
  *
  * Public API:
- *   setupWeapon(camera, renderer) → { updateWeapon(delta), flashMuzzle() }
+ *   setupWeapon(camera, renderer) → { updateWeapon(delta), flashMuzzle(), setHidden() }
  */
 
 // Muzzle flash fades from full to zero over this many seconds.
 const FLASH_DURATION = 0.1;
+
+// ── Whole-weapon placement (UNCHANGED from the original blaster) ─────────────
+// These position/scale the entire weapon group; the model sits inside it.
 
 // Where the gun sits when parented to the camera (flat desktop/mobile view).
 const CAMERA_POS   = new THREE.Vector3(0.22, -0.20, -0.55);
@@ -29,36 +35,22 @@ const VR_POS   = new THREE.Vector3(0, -0.02, -0.05);
 const VR_EULER = new THREE.Euler(0, 0, 0);
 const VR_SCALE = 0.7;
 
+// ── GLB model fit (TUNE THESE on-device) ─────────────────────────────────────
+// Correct the imported model's own size / origin / orientation so it sits like a
+// held gun (barrel pointing forward along −Z). These apply to the model INSIDE
+// the weapon group, so adjusting them never disturbs the placement above.
+const MODEL_SCALE = 1.0;                           // GLBs often import huge or tiny
+const MODEL_POS   = new THREE.Vector3(0, 0, 0);    // recenter the grip in-hand
+const MODEL_EULER = new THREE.Euler(0, 0, 0);      // rotate the barrel to face −Z
+
+// Muzzle-flash position at the (new) barrel tip — tune if the flash sits off the
+// new model's muzzle. Kept as a constant for easy on-device adjustment.
+const FLASH_POS = new THREE.Vector3(0, 0.02, -0.44);
+
+// One shared loader for the whole app.
+const gltfLoader = new GLTFLoader();
+
 export function setupWeapon(camera, renderer) {
-  // ── Build the merged gun body ───────────────────────────────────────────────
-  // Each primitive's local transform is baked into its geometry before merging,
-  // so the final result is a single static geometry → one draw call.
-
-  // Main body block.
-  const body = new THREE.BoxGeometry(0.12, 0.12, 0.34);
-  body.translate(0, 0, -0.05);
-
-  // Barrel — cylinder rotated to point forward along −Z.
-  const barrel = new THREE.CylinderGeometry(0.035, 0.035, 0.28, 12);
-  barrel.rotateX(Math.PI / 2); // default cylinder is along Y; align to Z
-  barrel.translate(0, 0.02, -0.28);
-
-  // Grip — angled down and back.
-  const grip = new THREE.BoxGeometry(0.09, 0.20, 0.10);
-  grip.rotateX(0.3);
-  grip.translate(0, -0.15, 0.08);
-
-  const gunGeo = mergeGeometries([body, barrel, grip], false);
-
-  const gunMat = new THREE.MeshBasicMaterial({ color: 0x14141c }); // dark body
-  const gunMesh = new THREE.Mesh(gunGeo, gunMat);
-
-  // ── Neon edge outline ───────────────────────────────────────────────────────
-  // One EdgesGeometry of the whole merged gun → a single LineSegments.
-  const edges    = new THREE.EdgesGeometry(gunGeo, 25); // 25° threshold trims clutter
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0x00e5ff }); // cyan
-  const edgeLines = new THREE.LineSegments(edges, edgesMat);
-
   // ── Muzzle flash ────────────────────────────────────────────────────────────
   // A small flat plane at the barrel tip, additive orange, invisible until firing.
   const flashGeo = new THREE.PlaneGeometry(0.18, 0.18);
@@ -71,12 +63,39 @@ export function setupWeapon(camera, renderer) {
     side: THREE.DoubleSide,
   });
   const flash = new THREE.Mesh(flashGeo, flashMat);
-  flash.position.set(0, 0.02, -0.44); // just past the barrel tip
+  flash.position.copy(FLASH_POS); // just past the barrel tip
   flash.visible = false;
 
   // ── Group everything ────────────────────────────────────────────────────────
+  // The group holds the muzzle flash immediately; the GLB model is added into it
+  // once it finishes loading (below). Placement isn't blocked on the load.
   const weapon = new THREE.Group();
-  weapon.add(gunMesh, edgeLines, flash);
+  weapon.add(flash);
+
+  // ── Load the GLB gun model (once) ────────────────────────────────────────────
+  // Loaded a single time and reused. Added into the weapon group when ready, so a
+  // slow load never delays attachment — the model just pops in sub-second.
+  gltfLoader.load(
+    gunModelUrl,
+    (gltf) => {
+      const model = gltf.scene;
+      model.position.copy(MODEL_POS);
+      model.rotation.copy(MODEL_EULER);
+      model.scale.setScalar(MODEL_SCALE);
+      // First-person object — always on screen, so skip frustum culling to avoid
+      // any cull "pop", and don't let it cast/receive shadows (cheap on Quest).
+      model.traverse((o) => {
+        if (o.isMesh) {
+          o.frustumCulled = false;
+          o.castShadow = false;
+          o.receiveShadow = false;
+        }
+      });
+      weapon.add(model);
+    },
+    undefined,
+    (err) => console.warn('gun model failed to load', err),
+  );
 
   // Start parented to the camera (flat mode).
   attachToCamera();
