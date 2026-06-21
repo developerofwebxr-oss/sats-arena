@@ -40,9 +40,11 @@ const VR_SCALE = 0.7;
 // Correct the imported model's own size / origin / orientation so it sits like a
 // held gun (barrel pointing forward along −Z). These apply to the model INSIDE
 // the weapon group, so adjusting them never disturbs the placement above.
-const MODEL_SCALE = 1.0;                           // GLBs often import huge or tiny
-const MODEL_POS   = new THREE.Vector3(0, 0, 0);    // recenter the grip in-hand
-const MODEL_EULER = new THREE.Euler(0, 0, 0);      // rotate the barrel to face −Z
+// Raw model is 0.181 × 0.586 × 1.135 m (measured), pivot at its base
+// (center.y ≈ 0.293). Scale to ≈0.4 m long and recenter on the group origin.
+const MODEL_SCALE = 0.35;                              // 1.135 m → ≈0.40 m long
+const MODEL_POS   = new THREE.Vector3(0, -0.103, -0.019); // = −center × scale (recenter)
+const MODEL_EULER = new THREE.Euler(0, 0, 0);          // tune if barrel faces wrong way
 
 // Muzzle-flash position at the (new) barrel tip — tune if the flash sits off the
 // new model's muzzle. Kept as a constant for easy on-device adjustment.
