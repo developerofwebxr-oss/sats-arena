@@ -78,9 +78,10 @@ dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 gltfLoader.setDRACOLoader(dracoLoader);
 
 export function setupWeapon(camera, renderer) {
-  // TEMP debug: ?flashtest=1 holds the muzzle flash lit so it can be screenshotted
-  // on desktop (a 0.1s flash is too brief to capture). Removed before promotion.
-  const FLASH_TEST = new URLSearchParams(window.location.search).get('flashtest') === '1';
+  // TEMP debug: hold the muzzle flash lit so it can be screenshotted on desktop
+  // (a 0.1s flash is too brief to catch, and query params are stripped in the
+  // review browser). HARDCODED true for verification — revert before promotion.
+  const FLASH_TEST = true;
 
   // ── Muzzle flash ────────────────────────────────────────────────────────────
   // A billboarded SPRITE carrying a jagged star-burst texture — reads as an energy
