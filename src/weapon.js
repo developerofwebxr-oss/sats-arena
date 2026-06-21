@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import gunModelUrl from './assets/sats-arena-new-gun.glb?url';
+import gunModelUrl from './assets/sats-arena-better-gun.glb?url';
 
 /**
  * weapon.js — a fancy Bitcoin-themed first-person blaster loaded from a GLB.
@@ -25,10 +25,20 @@ const FLASH_DURATION = 0.1;
 // ── Whole-weapon placement (UNCHANGED from the original blaster) ─────────────
 // These position/scale the entire weapon group; the model sits inside it.
 
-// Where the gun sits when parented to the camera (flat desktop/mobile view).
-const CAMERA_POS   = new THREE.Vector3(0.22, -0.20, -0.55);
+// Where the gun sits when parented to the camera (flat view).
+// Mobile uses a SMALLER x offset: a narrow portrait aspect has a tight
+// horizontal FOV, so the desktop x (0.22) shoves the gun against the right edge.
+// Pulling x in brings it more into view on phones. Desktop x is unchanged.
+const CAMERA_POS        = new THREE.Vector3(0.22, -0.20, -0.55);
+const CAMERA_POS_MOBILE = new THREE.Vector3(0.10, -0.20, -0.55); // pulled left for phones
 const CAMERA_EULER = new THREE.Euler(0.05, -0.08, 0); // slight inward tilt
 const CAMERA_SCALE = 1.0;
+
+// Coarse pointer or a small min-dimension → treat as a phone for gun placement.
+function isMobileView() {
+  return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+         Math.min(window.innerWidth, window.innerHeight) < 600;
+}
 
 // Where the gun sits when parented to the controller in VR.
 // Smaller and centred on the controller, pointing forward (−Z).
@@ -156,7 +166,7 @@ export function setupWeapon(camera, renderer) {
 
   function attachToCamera() {
     camera.add(weapon);
-    weapon.position.copy(CAMERA_POS);
+    weapon.position.copy(isMobileView() ? CAMERA_POS_MOBILE : CAMERA_POS);
     weapon.rotation.copy(CAMERA_EULER);
     weapon.scale.setScalar(CAMERA_SCALE);
   }

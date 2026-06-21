@@ -1,0 +1,57 @@
+{
+  "_comment": "WORKING Mac/MPS Flux schnell text-to-image (ComfyUI API format). Uses GGUF Q5_K_S UNet (MPS-safe) via ComfyUI-GGUF custom node + fp16 T5/CLIP + Flux VAE. fp8 does NOT run on MPS. Edit node 6 'text' for the prompt, node 9 'filename_prefix' for output name, node 3 'seed' for variation. POST under {\"prompt\": <this>} to http://127.0.0.1:8188/prompt. Server output dir: /Users/dev/ComfyUI-Shared/output",
+  "12": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": { "unet_name": "flux1-schnell-Q5_K_S.gguf" }
+  },
+  "11": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "t5xxl_fp16.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux"
+    }
+  },
+  "10": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "ae.safetensors" }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Wide cinematic establishing shot of a massive modern Bitcoin conference hall, thousands of attendees, glowing orange stage lights, huge LED screens, Bitcoin logo motifs, energetic crowd, volumetric haze, dramatic lighting, deep blues with warm orange accents, photorealistic, ultra detailed, professional event photography",
+      "clip": ["11", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "", "clip": ["11", 0] }
+  },
+  "5": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": { "width": 1344, "height": 768, "batch_size": 1 }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 1,
+      "steps": 4,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["12", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["3", 0], "vae": ["10", 0] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "scene01_venue", "images": ["8", 0] }
+  }
+}
